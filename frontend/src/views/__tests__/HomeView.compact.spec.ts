@@ -100,6 +100,12 @@ describe('HomeView compact mode', () => {
     expect(wrapper.find('.terminal-container').exists()).toBe(true)
   })
 
+  it('links the footer GitHub item to the owner repository', () => {
+    const wrapper = mountHome()
+
+    expect(wrapper.get('footer a[href="https://github.com/forever94yu/sub2api"]').text()).toBe('GitHub')
+  })
+
   it('links unauthenticated visitors to login', () => {
     expect(compactDestination(mountHome({ compact_home_enabled: true }))).toBe('/login')
   })
