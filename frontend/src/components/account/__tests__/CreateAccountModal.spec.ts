@@ -228,6 +228,13 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(flow.props('initialInputMethod')).toBe('manual')
   })
 
+  it('defaults new OpenAI OAuth accounts to full Codex fingerprint convergence', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+
+    expect(wrapper.get('[data-testid="create-codex-fingerprint-mode-select"]').attributes('modelvalue')).toBe('full')
+  })
+
   it.each([
     ['camelCase', { authMode: 'agentIdentity', agentIdentity: { agentRuntimeId: 'runtime' } }],
     ['nested identity without auth_mode', { agent_identity: { agent_runtime_id: 'runtime' } }],

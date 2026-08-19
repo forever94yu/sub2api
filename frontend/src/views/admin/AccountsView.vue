@@ -611,7 +611,7 @@ const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
-const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
+const upstreamBillingProbeGloballyEnabled = ref(false)
 const upstreamBillingNow = ref(Date.now())
 let lastUpstreamBillingSortRefreshMinute = -1
 useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
@@ -1394,8 +1394,9 @@ const handleManualRefresh = async () => {
 const loadUpstreamBillingProbeGlobalState = async () => {
   try {
     const settings = await adminAPI.accounts.getUpstreamBillingProbeSettings()
-    upstreamBillingProbeGloballyEnabled.value = settings.enabled
+    upstreamBillingProbeGloballyEnabled.value = settings?.enabled === true
   } catch (error) {
+    upstreamBillingProbeGloballyEnabled.value = false
     console.error('Failed to load upstream billing probe settings:', error)
   }
 }

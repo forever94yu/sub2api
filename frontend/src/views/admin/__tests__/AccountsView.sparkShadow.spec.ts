@@ -17,6 +17,7 @@ const {
   getAllGroups,
   duplicateAccount,
   createSparkShadow,
+  getUpstreamBillingProbeSettings,
   showSuccess,
   showError
 } = vi.hoisted(() => ({
@@ -27,6 +28,7 @@ const {
   getAllGroups: vi.fn(),
   duplicateAccount: vi.fn(),
   createSparkShadow: vi.fn(),
+  getUpstreamBillingProbeSettings: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn()
 }))
@@ -38,7 +40,7 @@ vi.mock('@/api/admin', () => ({
       listWithEtag,
       getBatchTodayStats,
       duplicate: duplicateAccount,
-      getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
+      getUpstreamBillingProbeSettings,
       createSparkShadow,
       delete: vi.fn(),
       batchClearError: vi.fn(),
@@ -107,7 +109,7 @@ const mountView = () =>
 describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
   beforeEach(() => {
     localStorage.clear()
-    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow, showSuccess, showError]) {
+    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow, getUpstreamBillingProbeSettings, showSuccess, showError]) {
       fn.mockReset()
     }
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
@@ -115,6 +117,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     duplicateAccount.mockResolvedValue({ id: 998, name: 'parent-acc (Copy)' })
     createSparkShadow.mockResolvedValue({ id: 999, name: 'parent-acc (Spark)' })
   })
@@ -224,6 +227,7 @@ const mountViewWithRow = () =>
             <div v-for="(row, idx) in (data || [])" :key="idx">
               <slot name="cell-name" :row="row" :value="row.name" />
               <slot name="cell-platform_type" :row="row" />
+              <slot name="cell-upstream_billing_rate" :row="row" />
             </div>
           </div>`
         },
@@ -251,6 +255,10 @@ const mountViewWithRow = () =>
         AccountTodayStatsCell: true,
         AccountGroupsCell: true,
         AccountUsageCell: true,
+        UpstreamBillingRateCell: {
+          props: ['globalProbeEnabled'],
+          template: '<span data-testid="global-probe-enabled">{{ String(globalProbeEnabled) }}</span>'
+        },
         Icon: true
       }
     }
@@ -259,13 +267,14 @@ const mountViewWithRow = () =>
 describe('admin AccountsView — 账号行展示', () => {
   beforeEach(() => {
     localStorage.clear()
-    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow, showSuccess, showError]) {
+    for (const fn of [listAccounts, listWithEtag, getBatchTodayStats, getAllProxies, getAllGroups, duplicateAccount, createSparkShadow, getUpstreamBillingProbeSettings, showSuccess, showError]) {
       fn.mockReset()
     }
     listWithEtag.mockResolvedValue({ notModified: true, etag: null, data: null })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
+    getUpstreamBillingProbeSettings.mockResolvedValue({ enabled: true, interval_minutes: 30 })
     vi.stubGlobal('confirm', vi.fn(() => true))
   })
 
@@ -345,6 +354,36 @@ describe('admin AccountsView — 账号行展示', () => {
     expect(wrapper.text()).toContain('oauth-account')
     expect(wrapper.text()).toContain('invalid-url')
 
+    wrapper.unmount()
+  })
+
+  it('treats an empty upstream billing probe settings response as globally disabled', async () => {
+    getUpstreamBillingProbeSettings.mockResolvedValueOnce(undefined)
+    listAccounts.mockResolvedValue({
+      items: [
+        {
+          id: 150,
+          name: 'relay-account',
+          platform: 'openai',
+          type: 'apikey',
+          credentials: { base_url: 'https://relay.example.com/v1' },
+          extra: { upstream_billing_probe_enabled: true },
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wrapper = mountViewWithRow()
+    await flushPromises()
+
+    expect(consoleError).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="global-probe-enabled"]').text()).toBe('false')
+
+    consoleError.mockRestore()
     wrapper.unmount()
   })
 
