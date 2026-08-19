@@ -2,6 +2,11 @@
 
 This directory contains files for deploying Sub2API on Linux servers and Apple-silicon Macs.
 
+Repository and image defaults:
+
+- GitHub repository: [forever94yu/sub2api](https://github.com/forever94yu/sub2api)
+- Docker Hub image: `forever94yu/sub2api:latest`
+
 ## Deployment Methods
 
 | Method | Best For | Setup Wizard |
