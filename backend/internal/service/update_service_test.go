@@ -28,16 +28,22 @@ func (s *updateServiceCacheStub) SetUpdateInfo(_ context.Context, data string, _
 }
 
 type updateServiceGitHubClientStub struct {
-	release        *GitHubRelease
-	recentReleases []*GitHubRelease
-	recentErr      error
+	release           *GitHubRelease
+	recentReleases    []*GitHubRelease
+	latestReleaseRepo string
+	recentReleaseRepo string
+	recentPerPage     int
+	recentErr         error
 }
 
-func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchLatestRelease(_ context.Context, repo string) (*GitHubRelease, error) {
+	s.latestReleaseRepo = repo
 	return s.release, nil
 }
 
-func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, string, int) ([]*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchRecentReleases(_ context.Context, repo string, perPage int) ([]*GitHubRelease, error) {
+	s.recentReleaseRepo = repo
+	s.recentPerPage = perPage
 	return s.recentReleases, s.recentErr
 }
 
@@ -69,6 +75,21 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
 }
 
+func TestUpdateServiceCheckUpdateUsesOwnerReleaseRepo(t *testing.T) {
+	stub := &updateServiceGitHubClientStub{
+		release: &GitHubRelease{
+			TagName: "v0.1.178",
+			Name:    "v0.1.178",
+		},
+	}
+	svc := NewUpdateService(&updateServiceCacheStub{}, stub, "0.1.177", "release")
+
+	_, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "forever94yu/sub2api", stub.latestReleaseRepo)
+}
+
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
 	return NewUpdateService(
 		&updateServiceCacheStub{},
@@ -76,6 +97,20 @@ func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateSe
 		current,
 		"release",
 	)
+}
+
+func TestUpdateServiceListRollbackVersionsUsesOwnerReleaseRepo(t *testing.T) {
+	releases := []*GitHubRelease{
+		{TagName: "v0.1.177"},
+	}
+	stub := &updateServiceGitHubClientStub{recentReleases: releases}
+	svc := NewUpdateService(&updateServiceCacheStub{}, stub, "0.1.178", "release")
+
+	_, err := svc.ListRollbackVersions(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, "forever94yu/sub2api", stub.recentReleaseRepo)
+	require.Equal(t, rollbackFetchPageSize, stub.recentPerPage)
 }
 
 func TestUpdateServiceListRollbackVersionsFiltersAndCaps(t *testing.T) {
