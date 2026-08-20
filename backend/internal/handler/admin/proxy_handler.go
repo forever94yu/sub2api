@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -41,17 +42,44 @@ type CreateProxyRequest struct {
 
 // UpdateProxyRequest represents update proxy request
 type UpdateProxyRequest struct {
-	Name           string `json:"name"`
-	Protocol       string `json:"protocol" binding:"omitempty,oneof=http https socks5 socks5h"`
-	Host           string `json:"host"`
-	Port           int    `json:"port" binding:"omitempty,min=1,max=65535"`
-	Username       string `json:"username"`
-	Password       string `json:"password"`
-	Status         string `json:"status" binding:"omitempty,oneof=active inactive"`
-	ExpiresAt      *int64 `json:"expires_at"`
-	FallbackMode   string `json:"fallback_mode" binding:"omitempty,oneof=none proxy direct"`
-	BackupProxyID  *int64 `json:"backup_proxy_id"`
-	ExpiryWarnDays int    `json:"expiry_warn_days" binding:"omitempty,min=0"`
+	Name              string `json:"name"`
+	Protocol          string `json:"protocol" binding:"omitempty,oneof=http https socks5 socks5h"`
+	Host              string `json:"host"`
+	Port              int    `json:"port" binding:"omitempty,min=1,max=65535"`
+	Username          string `json:"username"`
+	Password          string `json:"password"`
+	Status            string `json:"status" binding:"omitempty,oneof=active inactive"`
+	ExpiresAt         *int64 `json:"expires_at"`
+	FallbackMode      string `json:"fallback_mode" binding:"omitempty,oneof=none proxy direct"`
+	BackupProxyID     *int64 `json:"backup_proxy_id"`
+	ExpiryWarnDays    int    `json:"expiry_warn_days" binding:"omitempty,min=0"`
+	usernameSet       bool
+	passwordSet       bool
+	expiresAtSet      bool
+	fallbackModeSet   bool
+	backupProxyIDSet  bool
+	expiryWarnDaysSet bool
+}
+
+func (r *UpdateProxyRequest) UnmarshalJSON(data []byte) error {
+	type updateProxyRequestAlias UpdateProxyRequest
+	var decoded updateProxyRequestAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = UpdateProxyRequest(decoded)
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, r.usernameSet = fields["username"]
+	_, r.passwordSet = fields["password"]
+	_, r.expiresAtSet = fields["expires_at"]
+	_, r.fallbackModeSet = fields["fallback_mode"]
+	_, r.backupProxyIDSet = fields["backup_proxy_id"]
+	_, r.expiryWarnDaysSet = fields["expiry_warn_days"]
+	return nil
 }
 
 // List handles listing all proxies with pagination
@@ -188,17 +216,23 @@ func (h *ProxyHandler) Update(c *gin.Context) {
 		expiresAt = &t
 	}
 	proxy, err := h.adminService.UpdateProxy(c.Request.Context(), proxyID, &service.UpdateProxyInput{
-		Name:           strings.TrimSpace(req.Name),
-		Protocol:       strings.TrimSpace(req.Protocol),
-		Host:           strings.TrimSpace(req.Host),
-		Port:           req.Port,
-		Username:       strings.TrimSpace(req.Username),
-		Password:       strings.TrimSpace(req.Password),
-		Status:         strings.TrimSpace(req.Status),
-		ExpiresAt:      expiresAt,
-		FallbackMode:   strings.TrimSpace(req.FallbackMode),
-		BackupProxyID:  req.BackupProxyID,
-		ExpiryWarnDays: req.ExpiryWarnDays,
+		Name:              strings.TrimSpace(req.Name),
+		Protocol:          strings.TrimSpace(req.Protocol),
+		Host:              strings.TrimSpace(req.Host),
+		Port:              req.Port,
+		Username:          strings.TrimSpace(req.Username),
+		UsernameSet:       req.usernameSet,
+		Password:          strings.TrimSpace(req.Password),
+		PasswordSet:       req.passwordSet,
+		Status:            strings.TrimSpace(req.Status),
+		ExpiresAt:         expiresAt,
+		ExpiresAtSet:      req.expiresAtSet,
+		FallbackMode:      strings.TrimSpace(req.FallbackMode),
+		FallbackModeSet:   req.fallbackModeSet,
+		BackupProxyID:     req.BackupProxyID,
+		BackupProxyIDSet:  req.backupProxyIDSet,
+		ExpiryWarnDays:    req.ExpiryWarnDays,
+		ExpiryWarnDaysSet: req.expiryWarnDaysSet,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

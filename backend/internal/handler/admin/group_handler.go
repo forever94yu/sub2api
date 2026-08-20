@@ -75,14 +75,11 @@ func (f *optionalLimitField) UnmarshalJSON(data []byte) error {
 }
 
 func (f optionalLimitField) ToServiceInput() *float64 {
-	if !f.set {
-		return nil
-	}
-	if f.value != nil {
-		return f.value
-	}
-	zero := 0.0
-	return &zero
+	return f.value
+}
+
+func (f optionalLimitField) IsSet() bool {
+	return f.set
 }
 
 // NewGroupHandler creates a new admin group handler
@@ -639,8 +636,11 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		Status:                          req.Status,
 		SubscriptionType:                req.SubscriptionType,
 		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
+		DailyLimitUSDSet:                req.DailyLimitUSD.IsSet(),
 		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSDSet:               req.WeeklyLimitUSD.IsSet(),
 		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSDSet:              req.MonthlyLimitUSD.IsSet(),
 		LongContextPricingEnabled:       req.LongContextPricingEnabled,
 		ModelPricing:                    req.ModelPricing,
 		AllowImageGeneration:            req.AllowImageGeneration,
@@ -724,14 +724,62 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 		return
 	}
 
-	// Return mock data for now
+	ctx := c.Request.Context()
+	if _, err := h.adminService.GetGroup(ctx, groupID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	const pageSize = 1000
+	page := 1
+	var totalAPIKeys int64
+	var activeAPIKeys int64
+	for {
+		keys, total, err := h.adminService.GetGroupAPIKeys(ctx, groupID, page, pageSize)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		totalAPIKeys = total
+		for i := range keys {
+			if keys[i].IsActive() {
+				activeAPIKeys++
+			}
+		}
+		if int64(page*pageSize) >= total || len(keys) == 0 {
+			break
+		}
+		page++
+	}
+
+	var totalRequests int64
+	var totalCost float64
+	if h.dashboardService != nil {
+		stats, err := h.dashboardService.GetGroupStatsWithFilters(
+			ctx,
+			time.Unix(0, 0).UTC(),
+			time.Now().UTC().Add(time.Second),
+			0, 0, 0, groupID,
+			nil, nil, nil,
+		)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		for i := range stats {
+			if stats[i].GroupID == groupID {
+				totalRequests += stats[i].Requests
+				totalCost += stats[i].Cost
+			}
+		}
+	}
+
 	response.Success(c, gin.H{
-		"total_api_keys":  0,
-		"active_api_keys": 0,
-		"total_requests":  0,
-		"total_cost":      0.0,
+		"total_api_keys":  totalAPIKeys,
+		"active_api_keys": activeAPIKeys,
+		"total_requests":  totalRequests,
+		"total_cost":      totalCost,
 	})
-	_ = groupID // TODO: implement actual stats
 }
 
 // GetUsageSummary returns today's, yesterday's, and cumulative cost for all groups.

@@ -291,8 +291,11 @@ type UpdateGroupInput struct {
 	Status                    string
 	SubscriptionType          string   // standard/subscription
 	DailyLimitUSD             *float64 // 日限额 (USD)
+	DailyLimitUSDSet          bool     // true 表示请求中显式提供（nil 表示清除）
 	WeeklyLimitUSD            *float64 // 周限额 (USD)
+	WeeklyLimitUSDSet         bool     // true 表示请求中显式提供（nil 表示清除）
 	MonthlyLimitUSD           *float64 // 月限额 (USD)
+	MonthlyLimitUSDSet        bool     // true 表示请求中显式提供（nil 表示清除）
 	LongContextPricingEnabled *bool
 	ModelPricing              *[]ChannelModelPricing
 	// 图片生成计费配置（仅 antigravity 平台使用）
@@ -499,17 +502,23 @@ type CreateProxyInput struct {
 }
 
 type UpdateProxyInput struct {
-	Name           string
-	Protocol       string
-	Host           string
-	Port           int
-	Username       string
-	Password       string
-	Status         string
-	ExpiresAt      *time.Time
-	FallbackMode   string
-	BackupProxyID  *int64
-	ExpiryWarnDays int
+	Name              string
+	Protocol          string
+	Host              string
+	Port              int
+	Username          string
+	UsernameSet       bool
+	Password          string
+	PasswordSet       bool
+	Status            string
+	ExpiresAt         *time.Time
+	ExpiresAtSet      bool
+	FallbackMode      string
+	FallbackModeSet   bool
+	BackupProxyID     *int64
+	BackupProxyIDSet  bool
+	ExpiryWarnDays    int
+	ExpiryWarnDaysSet bool
 }
 
 type GenerateRedeemCodesInput struct {

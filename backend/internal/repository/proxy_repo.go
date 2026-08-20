@@ -478,6 +478,28 @@ func (r *proxyRepository) CountAccountsByProxyID(ctx context.Context, proxyID in
 	return count, nil
 }
 
+func (r *proxyRepository) CountActiveAccountsByProxyID(ctx context.Context, proxyID int64) (int64, error) {
+	var count int64
+	if err := scanSingleRow(ctx, r.sql, "SELECT COUNT(*) FROM accounts WHERE proxy_id = $1 AND status = 'active' AND deleted_at IS NULL", []any{proxyID}, &count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *proxyRepository) CountUsageRequestsByProxyID(ctx context.Context, proxyID int64) (int64, error) {
+	var count int64
+	query := `
+		SELECT COUNT(*)
+		FROM usage_logs ul
+		JOIN accounts a ON a.id = ul.account_id
+		WHERE a.proxy_id = $1 AND a.deleted_at IS NULL
+	`
+	if err := scanSingleRow(ctx, r.sql, query, []any{proxyID}, &count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *proxyRepository) ListAccountSummariesByProxyID(ctx context.Context, proxyID int64) ([]service.ProxyAccountSummary, error) {
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT id, name, platform, type, notes

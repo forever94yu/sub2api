@@ -205,6 +205,51 @@ func (s *ProxyRepoSuite) TestCountAccountsByProxyID_Zero() {
 	s.Require().Zero(count)
 }
 
+func (s *ProxyRepoSuite) TestCountActiveAccountsAndUsageRequestsByProxyID() {
+	proxy := s.mustCreateProxy(&service.Proxy{Name: "p-stats", Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: service.StatusActive})
+	activeAccountID := s.mustInsertAccount("stats-active", &proxy.ID)
+	inactiveAccountID := s.mustInsertAccount("stats-inactive", &proxy.ID)
+	_, err := s.tx.ExecContext(s.ctx, "UPDATE accounts SET status = 'inactive' WHERE id = $1", inactiveAccountID)
+	s.Require().NoError(err)
+
+	var userID int64
+	err = scanSingleRow(
+		s.ctx,
+		s.tx,
+		"INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
+		[]any{"proxy-stats@example.com", "test-hash"},
+		&userID,
+	)
+	s.Require().NoError(err)
+
+	var apiKeyID int64
+	err = scanSingleRow(
+		s.ctx,
+		s.tx,
+		"INSERT INTO api_keys (user_id, key, name) VALUES ($1, $2, $3) RETURNING id",
+		[]any{userID, "sk-proxy-stats", "proxy-stats"},
+		&apiKeyID,
+	)
+	s.Require().NoError(err)
+
+	_, err = s.tx.ExecContext(
+		s.ctx,
+		"INSERT INTO usage_logs (user_id, api_key_id, account_id, model) VALUES ($1, $2, $3, 'test-model'), ($1, $2, $3, 'test-model')",
+		userID,
+		apiKeyID,
+		activeAccountID,
+	)
+	s.Require().NoError(err)
+
+	activeCount, err := s.repo.CountActiveAccountsByProxyID(s.ctx, proxy.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), activeCount)
+
+	requestCount, err := s.repo.CountUsageRequestsByProxyID(s.ctx, proxy.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(2), requestCount)
+}
+
 // --- GetAccountCountsForProxies ---
 
 func (s *ProxyRepoSuite) TestGetAccountCountsForProxies() {
@@ -311,19 +356,20 @@ func (s *ProxyRepoSuite) mustCreateProxyWithTimes(name, status string, createdAt
 	return p
 }
 
-func (s *ProxyRepoSuite) mustInsertAccount(name string, proxyID *int64) {
+func (s *ProxyRepoSuite) mustInsertAccount(name string, proxyID *int64) int64 {
 	s.T().Helper()
 	var pid any
 	if proxyID != nil {
 		pid = *proxyID
 	}
-	_, err := s.tx.ExecContext(
+	var accountID int64
+	err := scanSingleRow(
 		s.ctx,
-		"INSERT INTO accounts (name, platform, type, proxy_id) VALUES ($1, $2, $3, $4)",
-		name,
-		service.PlatformAnthropic,
-		service.AccountTypeOAuth,
-		pid,
+		s.tx,
+		"INSERT INTO accounts (name, platform, type, proxy_id) VALUES ($1, $2, $3, $4) RETURNING id",
+		[]any{name, service.PlatformAnthropic, service.AccountTypeOAuth, pid},
+		&accountID,
 	)
 	s.Require().NoError(err, "insert account")
+	return accountID
 }

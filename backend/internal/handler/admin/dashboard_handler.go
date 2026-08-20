@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -15,18 +17,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type dashboardRealtimeMetricsProvider interface {
+	GetDashboardOverview(context.Context, *service.OpsDashboardFilter) (*service.OpsDashboardOverview, error)
+}
+
 // DashboardHandler handles admin dashboard statistics
 type DashboardHandler struct {
 	dashboardService   *service.DashboardService
 	aggregationService *service.DashboardAggregationService
+	realtimeProvider   dashboardRealtimeMetricsProvider
 	startTime          time.Time // Server start time for uptime calculation
 }
 
 // NewDashboardHandler creates a new admin dashboard handler
-func NewDashboardHandler(dashboardService *service.DashboardService, aggregationService *service.DashboardAggregationService) *DashboardHandler {
+func NewDashboardHandler(dashboardService *service.DashboardService, aggregationService *service.DashboardAggregationService, realtimeProvider dashboardRealtimeMetricsProvider) *DashboardHandler {
 	return &DashboardHandler{
 		dashboardService:   dashboardService,
 		aggregationService: aggregationService,
+		realtimeProvider:   realtimeProvider,
 		startTime:          time.Now(),
 	}
 }
@@ -190,12 +198,36 @@ func (h *DashboardHandler) BackfillAggregation(c *gin.Context) {
 // GetRealtimeMetrics handles getting real-time system metrics
 // GET /api/v1/admin/dashboard/realtime
 func (h *DashboardHandler) GetRealtimeMetrics(c *gin.Context) {
-	// Return mock data for now
+	if h.realtimeProvider == nil {
+		response.Error(c, 503, "Realtime metrics are unavailable")
+		return
+	}
+
+	now := time.Now().UTC()
+	overview, err := h.realtimeProvider.GetDashboardOverview(c.Request.Context(), &service.OpsDashboardFilter{
+		StartTime: now.Add(-time.Minute),
+		EndTime:   now,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if overview == nil {
+		response.Error(c, 503, "Realtime metrics are unavailable")
+		return
+	}
+
+	averageResponseTime := 0
+	if overview.Duration.Avg != nil {
+		averageResponseTime = *overview.Duration.Avg
+	}
+	requestsPerMinute := int64(math.Round(math.Max(overview.QPS.Current, 0) * 60))
+	activeRequests := int64(math.Ceil(math.Max(overview.QPS.Current, 0) * float64(averageResponseTime) / 1000))
 	response.Success(c, gin.H{
-		"active_requests":       0,
-		"requests_per_minute":   0,
-		"average_response_time": 0,
-		"error_rate":            0.0,
+		"active_requests":       activeRequests,
+		"requests_per_minute":   requestsPerMinute,
+		"average_response_time": averageResponseTime,
+		"error_rate":            overview.ErrorRate,
 	})
 }
 

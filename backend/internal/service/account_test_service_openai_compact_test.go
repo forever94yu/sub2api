@@ -283,7 +283,7 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactProbeIdentityMatc
 			"access_token":       "oauth-token",
 			"chatgpt_account_id": "chatgpt-acc",
 		},
-		// 收敛是显式 opt-in（#5610），这里显式开启以验证探测身份与真实流量同构。
+		// 显式使用 session 模式，验证探测身份与真实流量同构。
 		Extra: map[string]any{
 			"codex_fingerprint_mode":     "session",
 			codexFingerprintSeedExtraKey: testCodexFingerprintSeed,

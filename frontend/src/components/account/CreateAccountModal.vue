@@ -5096,12 +5096,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   } else {
     delete extra.codex_cli_only_allow_app_server
   }
-  // 后端缺省仍按 off 兼容旧账号；前端新建默认 full，因此必须显式落键。
-  if (codexFingerprintMode.value !== 'off') {
-    extra.codex_fingerprint_mode = codexFingerprintMode.value
-  } else {
-    delete extra.codex_fingerprint_mode
-  }
+  extra.codex_fingerprint_mode = codexFingerprintMode.value
   if (openAICompactMode.value !== 'auto') {
     extra.openai_compact_mode = openAICompactMode.value
   } else {

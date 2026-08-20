@@ -114,6 +114,24 @@ func (s *adminServiceImpl) GetProxyStats(ctx context.Context, proxyID int64) (*P
 		TotalAccounts:  accountCount,
 		ActiveAccounts: accountCount,
 	}
+	type activeAccountCounter interface {
+		CountActiveAccountsByProxyID(context.Context, int64) (int64, error)
+	}
+	if counter, ok := s.proxyRepo.(activeAccountCounter); ok {
+		stats.ActiveAccounts, err = counter.CountActiveAccountsByProxyID(ctx, proxyID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	type usageRequestCounter interface {
+		CountUsageRequestsByProxyID(context.Context, int64) (int64, error)
+	}
+	if counter, ok := s.proxyRepo.(usageRequestCounter); ok {
+		stats.TotalRequests, err = counter.CountUsageRequestsByProxyID(ctx, proxyID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if s.proxyLatencyCache == nil {
 		return stats, nil
 	}

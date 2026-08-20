@@ -55,8 +55,10 @@ func TestCollectRedeemCodeStatsAggregatesRepositoryData(t *testing.T) {
 
 type proxyStatsRepoStub struct {
 	ProxyRepository
-	proxy *Proxy
-	count int64
+	proxy        *Proxy
+	count        int64
+	activeCount  int64
+	requestCount int64
 }
 
 func (r *proxyStatsRepoStub) GetByID(_ context.Context, id int64) (*Proxy, error) {
@@ -68,6 +70,14 @@ func (r *proxyStatsRepoStub) GetByID(_ context.Context, id int64) (*Proxy, error
 
 func (r *proxyStatsRepoStub) CountAccountsByProxyID(context.Context, int64) (int64, error) {
 	return r.count, nil
+}
+
+func (r *proxyStatsRepoStub) CountActiveAccountsByProxyID(context.Context, int64) (int64, error) {
+	return r.activeCount, nil
+}
+
+func (r *proxyStatsRepoStub) CountUsageRequestsByProxyID(context.Context, int64) (int64, error) {
+	return r.requestCount, nil
 }
 
 type proxyStatsLatencyCacheStub struct {
@@ -84,7 +94,7 @@ func TestAdminServiceGetProxyStatsUsesAccountCountAndLatencyCache(t *testing.T) 
 	svc := &adminServiceImpl{
 		proxyRepo: &proxyStatsRepoStub{
 			proxy: &Proxy{ID: 9, Status: StatusActive},
-			count: 3,
+			count: 3, activeCount: 2, requestCount: 41,
 		},
 		proxyLatencyCache: &proxyStatsLatencyCacheStub{
 			info: &ProxyLatencyInfo{Success: true, LatencyMs: &latency},
@@ -95,8 +105,8 @@ func TestAdminServiceGetProxyStatsUsesAccountCountAndLatencyCache(t *testing.T) 
 	require.NoError(t, err)
 
 	require.Equal(t, int64(3), stats.TotalAccounts)
-	require.Equal(t, int64(3), stats.ActiveAccounts)
-	require.Equal(t, int64(0), stats.TotalRequests)
+	require.Equal(t, int64(2), stats.ActiveAccounts)
+	require.Equal(t, int64(41), stats.TotalRequests)
 	require.Equal(t, 100.0, stats.SuccessRate)
 	require.Equal(t, int64(123), stats.AverageLatency)
 }

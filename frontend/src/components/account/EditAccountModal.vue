@@ -5006,13 +5006,8 @@ const handleSubmit = async () => {
         }
       }
 
-      // 后端缺省仍按 off 兼容旧账号；编辑界面默认 full，因此必须显式落键。
       if (props.account.type === 'oauth') {
-        if (codexFingerprintMode.value !== 'off') {
-          newExtra.codex_fingerprint_mode = codexFingerprintMode.value
-        } else {
-          delete newExtra.codex_fingerprint_mode
-        }
+        newExtra.codex_fingerprint_mode = codexFingerprintMode.value
       }
 
       updatePayload.extra = newExtra

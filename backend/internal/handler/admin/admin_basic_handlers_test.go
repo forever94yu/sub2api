@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -166,7 +167,11 @@ func TestUserHandlerBindAuthIdentityMapsRequest(t *testing.T) {
 }
 
 func TestGroupHandlerEndpoints(t *testing.T) {
-	router, _ := setupAdminRouter()
+	router, adminSvc := setupAdminRouter()
+	adminSvc.apiKeys = []service.APIKey{
+		{ID: 1, Status: service.StatusActive},
+		{ID: 2, Status: "inactive"},
+	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/groups", nil)
@@ -249,6 +254,18 @@ func TestGroupHandlerEndpoints(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.updatedGroups, 1)
+	require.False(t, adminSvc.updatedGroups[0].DailyLimitUSDSet)
+
+	body, _ = json.Marshal(map[string]any{"daily_limit_usd": nil})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/groups/2", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.updatedGroups, 2)
+	require.True(t, adminSvc.updatedGroups[1].DailyLimitUSDSet)
+	require.Nil(t, adminSvc.updatedGroups[1].DailyLimitUSD)
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/admin/groups/2", nil)
@@ -259,6 +276,8 @@ func TestGroupHandlerEndpoints(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/admin/groups/2/stats", nil)
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"total_api_keys":2`)
+	require.Contains(t, rec.Body.String(), `"active_api_keys":1`)
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/admin/groups/2/api-keys", nil)
@@ -267,7 +286,7 @@ func TestGroupHandlerEndpoints(t *testing.T) {
 }
 
 func TestProxyHandlerEndpoints(t *testing.T) {
-	router, _ := setupAdminRouter()
+	router, adminSvc := setupAdminRouter()
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/proxies", nil)
@@ -297,6 +316,31 @@ func TestProxyHandlerEndpoints(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.updatedProxies, 1)
+	require.False(t, adminSvc.updatedProxies[0].UsernameSet)
+	require.False(t, adminSvc.updatedProxies[0].ExpiresAtSet)
+	require.False(t, adminSvc.updatedProxies[0].FallbackModeSet)
+
+	body, _ = json.Marshal(map[string]any{
+		"username":         "",
+		"password":         "",
+		"expires_at":       nil,
+		"fallback_mode":    "none",
+		"backup_proxy_id":  nil,
+		"expiry_warn_days": 0,
+	})
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/proxies/4", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.updatedProxies, 2)
+	require.True(t, adminSvc.updatedProxies[1].UsernameSet)
+	require.True(t, adminSvc.updatedProxies[1].PasswordSet)
+	require.True(t, adminSvc.updatedProxies[1].ExpiresAtSet)
+	require.True(t, adminSvc.updatedProxies[1].FallbackModeSet)
+	require.True(t, adminSvc.updatedProxies[1].BackupProxyIDSet)
+	require.True(t, adminSvc.updatedProxies[1].ExpiryWarnDaysSet)
 
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/admin/proxies/4", nil)
