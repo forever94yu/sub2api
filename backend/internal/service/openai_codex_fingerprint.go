@@ -147,7 +147,7 @@ func prepareCodexFingerprintExtraForCreate(platform, accountType string, extra m
 	if prepared == nil {
 		prepared = make(map[string]any, 2)
 	}
-	mode := codexFingerprintModeFromExtra(prepared)
+	mode := codexFingerprintFull
 	prepared[codexFingerprintModeExtraKey] = string(mode)
 	if codexFingerprintModeRequiresSeed(mode) {
 		prepared[codexFingerprintSeedExtraKey] = newCodexFingerprintSeed()
@@ -163,7 +163,7 @@ func prepareCodexFingerprintExtraForUpdate(account *Account, extra map[string]an
 	if prepared == nil {
 		prepared = make(map[string]any, 2)
 	}
-	mode := codexFingerprintModeFromExtra(prepared)
+	mode := codexFingerprintFull
 	prepared[codexFingerprintModeExtraKey] = string(mode)
 	if seed, ok := codexFingerprintSeed(account.Extra); ok {
 		prepared[codexFingerprintSeedExtraKey] = seed
@@ -181,6 +181,9 @@ func sanitizedCodexFingerprintExtraUpdates(updates map[string]any) map[string]an
 	}
 	sanitized := maps.Clone(updates)
 	delete(sanitized, codexFingerprintSeedExtraKey)
+	if _, ok := sanitized[codexFingerprintModeExtraKey]; ok {
+		sanitized[codexFingerprintModeExtraKey] = string(codexFingerprintFull)
+	}
 	return sanitized
 }
 

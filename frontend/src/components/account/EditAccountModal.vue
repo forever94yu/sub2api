@@ -3141,9 +3141,6 @@ const editWeeklyResetDay = ref<number | null>(null)
 const editWeeklyResetHour = ref<number | null>(null)
 const editResetTimezone = ref<string | null>(null)
 const codexFingerprintModeOptions = computed(() => [
-  { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
-  { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
-  { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
   { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
 ])
 
@@ -3635,10 +3632,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         extra?.codex_cli_only_allow_app_server === true
     }
     if (newAccount.type === 'oauth') {
-      const fpMode = extra?.codex_fingerprint_mode as string | undefined
-      codexFingerprintMode.value = (['off', 'device', 'session', 'full'].includes(fpMode || '')
-        ? fpMode as CodexFingerprintMode
-        : DEFAULT_CODEX_FINGERPRINT_MODE)
+      codexFingerprintMode.value = DEFAULT_CODEX_FINGERPRINT_MODE
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const compactMappings = credentials?.compact_model_mapping as Record<string, string> | undefined

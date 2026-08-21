@@ -1710,9 +1710,6 @@ const DEFAULT_CODEX_FINGERPRINT_MODE: CodexFingerprintMode = 'full'
 const enableCodexFingerprintMode = ref(true)
 const codexFingerprintMode = ref<CodexFingerprintMode>(DEFAULT_CODEX_FINGERPRINT_MODE)
 const codexFingerprintModeOptions = computed(() => [
-  { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
-  { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
-  { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
   { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
 ])
 const openAICompactMode = ref<OpenAICompactMode>('auto')

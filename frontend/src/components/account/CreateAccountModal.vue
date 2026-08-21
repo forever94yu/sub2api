@@ -4107,9 +4107,6 @@ type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
 const DEFAULT_CODEX_FINGERPRINT_MODE: CodexFingerprintMode = 'full'
 const codexFingerprintMode = ref<CodexFingerprintMode>(DEFAULT_CODEX_FINGERPRINT_MODE)
 const codexFingerprintModeOptions = computed(() => [
-  { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
-  { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
-  { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
   { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
 ])
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'

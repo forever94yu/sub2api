@@ -34,7 +34,7 @@ func TestAdminCreateAccountStripsUserSeedAndCreatesFreshSeedWhenEnabled(t *testi
 	require.NoError(t, err)
 	seed := requireValidCodexFingerprintSeed(t, created.Extra)
 	require.NotEqual(t, userSuppliedCodexFingerprintSeed, seed)
-	require.Equal(t, "session", created.Extra[codexFingerprintModeExtraKey])
+	require.Equal(t, "full", created.Extra[codexFingerprintModeExtraKey])
 }
 
 func TestAdminUpdateAccountPreservesExistingSeedAndStripsUserSeed(t *testing.T) {
@@ -90,7 +90,7 @@ func TestAdminUpdateAccountInitializesSeedWhenFullEditEnables(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotEqual(t, "not-a-seed", requireValidCodexFingerprintSeed(t, updated.Extra))
-	require.Equal(t, "device", updated.Extra[codexFingerprintModeExtraKey])
+	require.Equal(t, "full", updated.Extra[codexFingerprintModeExtraKey])
 }
 
 func TestAdminUpdateAccountDisableReenablePreservesValidSeed(t *testing.T) {
@@ -140,7 +140,7 @@ func TestAdminUpdateAccountExtraStripsSeedAndLeavesAtomicEnsureToRepository(t *t
 
 	require.NoError(t, err)
 	require.Len(t, repo.updates[accountID], 1)
-	require.Equal(t, "device", repo.updates[accountID][0][codexFingerprintModeExtraKey])
+	require.Equal(t, "full", repo.updates[accountID][0][codexFingerprintModeExtraKey])
 	require.NotContains(t, repo.updates[accountID][0], codexFingerprintSeedExtraKey)
 }
 
@@ -160,7 +160,7 @@ func TestBulkUpdateAccountsDoesNotPrewriteCodexSeed(t *testing.T) {
 	require.Empty(t, repo.updates, "bulk enable must not loop through UpdateExtra before BulkUpdate")
 	require.Len(t, repo.bulkUpdates, 1)
 	require.True(t, repo.bulkUpdates[0].EnsureCodexFingerprintSeed)
-	require.Equal(t, "session", repo.bulkUpdates[0].Extra[codexFingerprintModeExtraKey])
+	require.Equal(t, "full", repo.bulkUpdates[0].Extra[codexFingerprintModeExtraKey])
 	require.NotContains(t, repo.bulkUpdates[0].Extra, codexFingerprintSeedExtraKey)
 }
 
@@ -211,7 +211,7 @@ func TestDuplicateCreatePathMintsFreshSeedWhenEligible(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotEqual(t, testCodexFingerprintSeed, requireValidCodexFingerprintSeed(t, account.Extra))
-	require.Equal(t, "session", account.Extra[codexFingerprintModeExtraKey])
+	require.Equal(t, "full", account.Extra[codexFingerprintModeExtraKey])
 }
 
 func TestAccountServiceCreateAndUpdateCodexSeedLifecycle(t *testing.T) {

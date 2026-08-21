@@ -423,13 +423,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			markDecodedModified()
 		}
 		// 指纹收敛：一次性解析收敛 ID，请求体和出站头共享同一份 IDs（保证 turn_id 等随机字段一致）。
-		// Compact 请求体不接受普通 Responses 的 client_metadata 形态，因此只收敛出站头。
 		var clientHeaders http.Header
 		if c != nil && c.Request != nil {
 			clientHeaders = c.Request.Header
 		}
 		fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
-		if !isCompactRequest && fpIDs != nil {
+		if fpIDs != nil {
 			if applyCodexFingerprintClientMetadata(decoded, fpIDs) {
 				markDecodedModified()
 			}

@@ -371,19 +371,23 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
-  it('OpenAI OAuth 批量编辑可显式写入 off 指纹模式', async () => {
+  it('OpenAI OAuth 批量编辑不再提供非 full 指纹模式', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
       selectedTypes: ['oauth']
     })
 
-    await wrapper.get('[data-testid="bulk-codex-fingerprint-mode-select"]').setValue('off')
+    const options = wrapper
+      .get('[data-testid="bulk-codex-fingerprint-mode-select"]')
+      .findAll('option')
+      .map(option => (option.element as HTMLOptionElement).value)
+    expect(options).toEqual(['full'])
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
 
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       extra: {
-        codex_fingerprint_mode: 'off'
+        codex_fingerprint_mode: 'full'
       }
     })
   })

@@ -148,3 +148,53 @@ RETURNING id
 		require.Equal(t, want, readSeed(ids[i]), "retry must not rotate an existing valid seed")
 	}
 }
+
+func TestMigration229ForcesOpenAIOAuthCodexFingerprintFull(t *testing.T) {
+	ctx := context.Background()
+	testName := "migration-229-codex-full-" + uuid.NewString()
+	migrationSQL, err := dbmigrations.FS.ReadFile("229_force_openai_oauth_codex_fingerprint_full.sql")
+	require.NoError(t, err)
+
+	type fixture struct {
+		name        string
+		accountType string
+		extra       string
+	}
+	fixtures := []fixture{
+		{name: testName + "-off", accountType: service.AccountTypeOAuth, extra: `{"codex_fingerprint_mode":"off"}`},
+		{name: testName + "-device", accountType: service.AccountTypeOAuth, extra: `{"codex_fingerprint_mode":"device","codex_fingerprint_seed":"bad"}`},
+		{name: testName + "-session", accountType: service.AccountTypeOAuth, extra: `{"codex_fingerprint_mode":"session","codex_fingerprint_seed":"11111111-1111-4111-8111-111111111111"}`},
+		{name: testName + "-missing", accountType: service.AccountTypeOAuth, extra: `{}`},
+		{name: testName + "-apikey", accountType: service.AccountTypeAPIKey, extra: `{"codex_fingerprint_mode":"session"}`},
+	}
+
+	ids := make([]int64, 0, len(fixtures))
+	for _, f := range fixtures {
+		var id int64
+		require.NoError(t, integrationDB.QueryRowContext(ctx, `
+INSERT INTO accounts (name, platform, type, extra)
+VALUES ($1, 'openai', $2, $3::jsonb)
+RETURNING id
+`, f.name, f.accountType, f.extra).Scan(&id))
+		ids = append(ids, id)
+	}
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), `DELETE FROM accounts WHERE id = ANY($1)`, pq.Array(ids))
+	})
+
+	_, err = integrationDB.ExecContext(ctx, string(migrationSQL))
+	require.NoError(t, err)
+
+	for _, id := range ids[:4] {
+		var mode, seed string
+		require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT extra->>'codex_fingerprint_mode', extra->>'codex_fingerprint_seed' FROM accounts WHERE id = $1`, id).Scan(&mode, &seed))
+		require.Equal(t, "full", mode)
+		requireCanonicalUUIDString(t, seed)
+	}
+
+	var apiKeyMode string
+	var apiKeyHasSeed bool
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT extra->>'codex_fingerprint_mode', extra ? 'codex_fingerprint_seed' FROM accounts WHERE id = $1`, ids[4]).Scan(&apiKeyMode, &apiKeyHasSeed))
+	require.Equal(t, "session", apiKeyMode)
+	require.False(t, apiKeyHasSeed)
+}

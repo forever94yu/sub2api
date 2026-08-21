@@ -2070,7 +2070,7 @@ func TestOpenAIGatewayService_CodexFingerprintHTTPRawPassthroughHeaderBodyParity
 	require.Equal(t, gjson.Get(bodyTurnMetadata, "turn_id").String(), gjson.Get(headerTurnMetadata, "turn_id").String())
 }
 
-func TestOpenAIGatewayService_CodexFingerprintCompactUsesConvergedHeadersWithoutRewritingBody(t *testing.T) {
+func TestOpenAIGatewayService_CodexFingerprintCompactUsesConvergedHeaderAndBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -2110,10 +2110,11 @@ func TestOpenAIGatewayService_CodexFingerprintCompactUsesConvergedHeadersWithout
 	require.Equal(t, resolveConvergedSessionID(seed), upstream.lastReq.Header.Get("session_id"))
 	require.Equal(t, resolveConvergedSessionID(seed), upstream.lastReq.Header.Get("x-client-request-id"))
 	require.Equal(t, resolveConvergedSessionID(seed)+":0", upstream.lastReq.Header.Get("x-codex-window-id"))
-	require.NotEqual(t, resolveConvergedSessionID(seed), gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String())
-	require.Equal(t, "body-session", gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String())
-	require.Equal(t, "body-session", gjson.GetBytes(upstream.lastBody, "client_metadata.session_id").String())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "client_metadata.x-codex-installation-id").Exists())
+	require.Equal(t, resolveConvergedSessionID(seed), gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String())
+	require.Equal(t, resolveConvergedSessionID(seed), gjson.GetBytes(upstream.lastBody, "client_metadata.session_id").String())
+	require.Equal(t, resolveConvergedSessionID(seed), gjson.GetBytes(upstream.lastBody, "client_metadata.thread_id").String())
+	require.Equal(t, resolveConvergedInstallationID(account, seed), gjson.GetBytes(upstream.lastBody, "client_metadata.x-codex-installation-id").String())
+	require.Equal(t, resolveConvergedSessionID(seed)+":0", gjson.GetBytes(upstream.lastBody, "client_metadata.x-codex-window-id").String())
 }
 
 func TestOpenAIGatewayService_CodexFingerprintMessagesBridgeDoesNotInjectBodyPromptCacheKey(t *testing.T) {

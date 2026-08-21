@@ -159,7 +159,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 		reqStream = gjson.GetBytes(body, "stream").Bool()
 
-		// 指纹收敛：请求体和出站头共享同一份 IDs；compact 仅改写出站头。
+		// 指纹收敛：请求体和出站头共享同一份 IDs。
 		// 一次性解析收敛 ID：请求体 client_metadata 在此改写（raw 字节外科
 		// 手术，透传热路径禁全量 Unmarshal），出站头改写由请求构造器读取
 		// context 中的同一份 IDs 完成（turn_id 等随机字段两侧必须一致）。
@@ -168,7 +168,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			clientHeaders = c.Request.Header
 		}
 		fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
-		if !isOpenAIResponsesCompactPath(c) && fpIDs != nil {
+		if fpIDs != nil {
 			fpBody, fpChanged, fpErr := applyCodexFingerprintClientMetadataRaw(body, fpIDs)
 			if fpErr != nil {
 				return nil, fpErr
