@@ -250,9 +250,6 @@ import {
   PROVIDER_GEMINI,
   PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY,
-  PROVIDER_KIMI,
-  PROVIDER_ZHIPU,
-  PROVIDER_DEEPSEEK,
   PROVIDERS,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
@@ -275,9 +272,6 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
   { value: PROVIDER_ANTIGRAVITY, label: t('monitorCommon.providers.antigravity') },
-  { value: PROVIDER_KIMI, label: t('monitorCommon.providers.kimi') },
-  { value: PROVIDER_ZHIPU, label: t('monitorCommon.providers.zhipu') },
-  { value: PROVIDER_DEEPSEEK, label: t('monitorCommon.providers.deepseek') },
 ])
 
 const activeProvider = ref<Provider>(PROVIDER_ANTHROPIC)

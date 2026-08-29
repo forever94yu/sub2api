@@ -6,7 +6,7 @@ import "strings"
 // 不同上游对历史 thinking block 的语义要求是相反的：
 //   - Anthropic 官方：要求 thinking block 携带有效 signature，否则 400
 //     "thinking.signature: Field required"
-//   - DeepSeek `/anthropic`、Kimi `/coding` 等第三方 Anthropic 兼容上游：
+//   - 部分第三方 Anthropic 兼容上游：
 //     要求历史 thinking block 原样回传，否则 400
 //     "The content[].thinking in the thinking mode must be passed back to the API"
 //
@@ -30,17 +30,15 @@ const (
 //
 // 传入参数的语义随调用路径不同：
 //   - **Anthropic gateway**（转发原始 Anthropic 请求）：传 mappedModel（账号级 model mapping
-//     后的上游 model ID）。例：用户配置「claude-sonnet-4-6 → deepseek-v4-pro」后，
-//     传 deepseek-v4-pro 才能被正确判为 passback-required。
+//     后的上游 model ID）。
 //   - **Gemini messages compat**（Anthropic body → Gemini upstream）：传 originalModel
 //     （客户端 Anthropic 请求的 model ID）。原因：此场景下上游是 Gemini，但被剥
 //     离的 body 是 Anthropic 格式，需按客户端请求的 Anthropic 子协议族判定剥离行为。
 //
 // 匹配规则按厂商前缀硬编码：
 //   - anthropic-strict: claude-* / opus-* / sonnet-* / haiku-*
-//   - passback-required: deepseek-* / kimi-* / moonshot-* / glm-* /
-//     minimax-* / minimax-m* / (qwen-|qwen2-|qwen3-|qwen4-)*-thinking /
-//     Kimi Code bare aliases k3 / k3-256k（精确匹配，避免宽泛 k3 前缀）
+//   - passback-required: minimax-* / minimax-m* /
+//     (qwen-|qwen2-|qwen3-|qwen4-)*-thinking
 //   - unknown: 其他模型（保守不剥离）
 //
 // 已知局限：前缀贪婪匹配（如 `claudette-`、`claude-foreign-relay-` 也会被分类为
@@ -56,18 +54,6 @@ func ResolveThinkingProtocol(modelID string) ThinkingProtocol {
 	}
 	id := strings.ToLower(modelID)
 
-	// Passback-required 优先匹配（特定厂商前缀），避免误判 claude-* 时也命中。
-	// kimi-k3* 已由 kimi- 前缀覆盖；Kimi Code endpoint 的 bare model ID（k3 / k3-256k）
-	// 无厂商前缀，仅精确匹配，避免 "foo-k3" 等未知型号被宽泛前缀误判。
-	switch {
-	case strings.HasPrefix(id, "deepseek-"),
-		strings.HasPrefix(id, "kimi-"),
-		strings.HasPrefix(id, "moonshot-"),
-		strings.HasPrefix(id, "glm-"),
-		id == "k3",
-		id == "k3-256k":
-		return ThinkingProtocolPassbackRequired
-	}
 	// MiniMax M 系列：走 https://api.minimax.io/anthropic 端点，
 	// 官方明文要求 thinking block round-trip（interleaved thinking 协议）。
 	// 实例：MiniMax-M2、MiniMax-M2.1、MiniMax-M2.5、MiniMax-M2.7、MiniMax-M2.7-highspeed

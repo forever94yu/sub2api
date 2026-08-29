@@ -24,7 +24,7 @@ var anthropicInboundBlockTypes = map[string]bool{
 func responsesToAnthropicMessages(t *testing.T, input string) []AnthropicMessage {
 	t.Helper()
 	var req ResponsesRequest
-	require.NoError(t, json.Unmarshal([]byte(`{"model":"glm-5.2","input":`+input+`}`), &req))
+	require.NoError(t, json.Unmarshal([]byte(`{"model":"vendor-reasoning-v1","input":`+input+`}`), &req))
 	out, err := ResponsesToAnthropicRequest(&req)
 	require.NoError(t, err)
 	return out.Messages

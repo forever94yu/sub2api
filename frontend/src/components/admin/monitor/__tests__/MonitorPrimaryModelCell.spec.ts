@@ -18,8 +18,8 @@ vi.mock('vue-i18n', async () => {
 function makeRow(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
   return {
     id: 1,
-    name: 'kimi-coding',
-    provider: 'kimi',
+    name: 'openai-main',
+    provider: 'openai',
     api_mode: 'chat_completions',
     endpoint: '',
     api_key_masked: '',

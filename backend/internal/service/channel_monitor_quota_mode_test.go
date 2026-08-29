@@ -75,8 +75,8 @@ func newQuotaModeFetcher(accounts map[int64]*Account, usage *stubMonitorUsageSou
 func TestRunCheck_QuotaModeProducesSingleQuotaResult(t *testing.T) {
 	repo := &quotaModeRepoStub{monitor: &ChannelMonitor{
 		ID:              1,
-		Name:            "kimi-quota",
-		Provider:        MonitorProviderKimi,
+		Name:            "gemini-quota",
+		Provider:        MonitorProviderGemini,
 		APIMode:         MonitorAPIModeChatCompletions,
 		PrimaryModel:    "quota",
 		Enabled:         true,
@@ -85,14 +85,12 @@ func TestRunCheck_QuotaModeProducesSingleQuotaResult(t *testing.T) {
 		AccountID:       int64Ptr(9),
 	}}
 	svc := newQuotaModeService(repo)
-	fetcher := newQuotaModeFetcher(map[int64]*Account{
-		9: {ID: 9, Platform: domain.PlatformKimi, Credentials: map[string]any{"account_mode": AccountModeCoding}},
-	}, nil)
-	fetcher.cnQuota = &stubMonitorCNQuotaSource{result: &CNProviderQuotaProbeResult{
-		Success:         true,
-		CredentialValid: true,
-		Tiers:           []CNQuotaTier{{Window: "5h", UsedPercent: 30}},
+	usage := &stubMonitorUsageSource{usage: &UsageInfo{
+		GeminiProDaily: &UsageProgress{Utilization: 30},
 	}}
+	fetcher := newQuotaModeFetcher(map[int64]*Account{
+		9: {ID: 9, Platform: domain.PlatformGemini, Type: AccountTypeAPIKey},
+	}, usage)
 	svc.SetQuotaFetcher(fetcher)
 
 	results, err := svc.RunCheck(context.Background(), 1)
@@ -106,7 +104,7 @@ func TestRunCheck_QuotaModeProducesSingleQuotaResult(t *testing.T) {
 	require.Nil(t, res.PingLatencyMs)
 	require.NotNil(t, res.Quota)
 	require.True(t, res.Quota.Success)
-	require.Equal(t, "cn_quota", res.Quota.Source)
+	require.Equal(t, "usage", res.Quota.Source)
 
 	// 历史行携带配额快照，并推进 last_checked_at。
 	require.Len(t, repo.history, 1)
@@ -118,7 +116,7 @@ func TestRunCheck_QuotaModeProducesSingleQuotaResult(t *testing.T) {
 func TestRunCheck_QuotaModeUnlinkedAccountDegrades(t *testing.T) {
 	repo := &quotaModeRepoStub{monitor: &ChannelMonitor{
 		ID:              2,
-		Provider:        MonitorProviderDeepseek,
+		Provider:        MonitorProviderOpenAI,
 		APIMode:         MonitorAPIModeChatCompletions,
 		Endpoint:        "",
 		PrimaryModel:    "quota",
@@ -141,7 +139,7 @@ func TestRunCheck_QuotaModeUnlinkedAccountDegrades(t *testing.T) {
 func TestRunCheck_QuotaModeNilFetcherFailsClosed(t *testing.T) {
 	repo := &quotaModeRepoStub{monitor: &ChannelMonitor{
 		ID:              3,
-		Provider:        MonitorProviderZhipu,
+		Provider:        MonitorProviderGemini,
 		APIMode:         MonitorAPIModeChatCompletions,
 		PrimaryModel:    "quota",
 		Enabled:         true,
@@ -285,7 +283,7 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 		{
 			name: "quota requires account",
 			params: ChannelMonitorCreateParams{
-				Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeQuota,
+				Provider: MonitorProviderOpenAI, CheckMode: MonitorCheckModeQuota,
 				IntervalSeconds: 60, PrimaryModel: "quota",
 			},
 			wantErr: ErrChannelMonitorAccountRequired,
@@ -293,8 +291,8 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 		{
 			name: "quota_probe requires endpoint and api key too",
 			params: ChannelMonitorCreateParams{
-				Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeQuotaProbe,
-				IntervalSeconds: 60, AccountID: &accountID, PrimaryModel: "kimi-k2",
+				Provider: MonitorProviderOpenAI, CheckMode: MonitorCheckModeQuotaProbe,
+				IntervalSeconds: 60, AccountID: &accountID, PrimaryModel: "vendor-model",
 			},
 			wantErr: ErrChannelMonitorInvalidEndpoint,
 		},
@@ -329,8 +327,8 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 			// quota_probe 仍要打真实探活请求：空模型必须报错，不再用 "quota" 占位。
 			name: "quota_probe requires primary model",
 			params: ChannelMonitorCreateParams{
-				Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeQuotaProbe,
-				Endpoint: "https://api.kimi.com", APIKey: "sk",
+				Provider: MonitorProviderOpenAI, CheckMode: MonitorCheckModeQuotaProbe,
+				Endpoint: "https://api.openai.com", APIKey: "sk",
 				IntervalSeconds: 60, AccountID: &accountID,
 			},
 			wantErr: ErrChannelMonitorMissingPrimaryModel,
@@ -350,34 +348,37 @@ func TestValidateCreateParams_CheckModeMatrix(t *testing.T) {
 }
 
 func TestNormalizeMonitorPrimaryModel_QuotaDefault(t *testing.T) {
-	require.Equal(t, "quota", normalizeMonitorPrimaryModel(MonitorProviderKimi, MonitorCheckModeQuota, ""))
+	require.Equal(t, "quota", normalizeMonitorPrimaryModel(MonitorProviderOpenAI, MonitorCheckModeQuota, ""))
 	require.Equal(t, "quota", normalizeMonitorPrimaryModel(MonitorProviderAntigravity, MonitorCheckModeQuota, "  "))
 	// quota_probe 仍要打真实探活请求：空模型返回 ""（由上层报 MissingPrimaryModel），
 	// 不再用 "quota" 占位打 model="quota" 的请求。
-	require.Equal(t, "", normalizeMonitorPrimaryModel(MonitorProviderKimi, MonitorCheckModeQuotaProbe, ""))
+	require.Equal(t, "", normalizeMonitorPrimaryModel(MonitorProviderOpenAI, MonitorCheckModeQuotaProbe, ""))
 	// grok 分支在纯 quota 占位之后：grok+quota 占位 "quota"，
 	// grok 探活（probe/quota_probe）默认轻量测活模型。
 	require.Equal(t, "quota", normalizeMonitorPrimaryModel(MonitorProviderGrok, MonitorCheckModeQuota, ""))
 	require.Equal(t, MonitorDefaultGrokModel, normalizeMonitorPrimaryModel(MonitorProviderGrok, MonitorCheckModeProbe, ""))
 	require.Equal(t, MonitorDefaultGrokModel, normalizeMonitorPrimaryModel(MonitorProviderGrok, MonitorCheckModeQuotaProbe, ""))
 	// 探活模式沿用原语义：其余必填（空串报错在 validateCreateParams）。
-	require.Equal(t, "kimi-k2", normalizeMonitorPrimaryModel(MonitorProviderKimi, MonitorCheckModeQuotaProbe, "kimi-k2"))
+	require.Equal(t, "vendor-model", normalizeMonitorPrimaryModel(MonitorProviderOpenAI, MonitorCheckModeQuotaProbe, "vendor-model"))
 }
 
 func TestProviderProbeCapabilityMatrix(t *testing.T) {
 	require.False(t, providerSupportsProbe(MonitorProviderAntigravity))
 	for _, p := range []string{
 		MonitorProviderOpenAI, MonitorProviderAnthropic, MonitorProviderGemini,
-		MonitorProviderGrok, MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek,
+		MonitorProviderGrok,
 	} {
 		require.True(t, providerSupportsProbe(p), p)
 	}
 	for _, p := range []string{
 		MonitorProviderOpenAI, MonitorProviderAnthropic, MonitorProviderGemini,
 		MonitorProviderGrok, MonitorProviderAntigravity,
-		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek,
 	} {
 		require.NoError(t, validateProvider(p), p)
+	}
+	for _, p := range []string{"kimi", "zhipu", "deepseek"} {
+		require.ErrorIs(t, validateProvider(p), ErrChannelMonitorInvalidProvider)
+		require.False(t, providerSupportsProbe(p))
 	}
 }
 
@@ -386,18 +387,18 @@ func TestProviderProbeCapabilityMatrix(t *testing.T) {
 func TestValidateLinkedAccount_Matrix(t *testing.T) {
 	svc := NewChannelMonitorService(nil, nil)
 	fetcher := newQuotaModeFetcher(map[int64]*Account{
-		1: {ID: 1, Platform: domain.PlatformKimi},
+		1: {ID: 1, Platform: domain.PlatformGemini},
 	}, nil)
 	svc.SetQuotaFetcher(fetcher)
 
-	require.NoError(t, svc.validateLinkedAccount(context.Background(), MonitorProviderKimi, nil))
-	require.NoError(t, svc.validateLinkedAccount(context.Background(), MonitorProviderKimi, int64Ptr(0)))
-	require.NoError(t, svc.validateLinkedAccount(context.Background(), MonitorProviderKimi, int64Ptr(1)))
-	require.ErrorIs(t, svc.validateLinkedAccount(context.Background(), MonitorProviderZhipu, int64Ptr(1)), ErrChannelMonitorProviderIncompatible)
-	require.ErrorIs(t, svc.validateLinkedAccount(context.Background(), MonitorProviderKimi, int64Ptr(404)), ErrChannelMonitorAccountRequired)
+	require.NoError(t, svc.validateLinkedAccount(context.Background(), MonitorProviderGemini, nil))
+	require.NoError(t, svc.validateLinkedAccount(context.Background(), MonitorProviderGemini, int64Ptr(0)))
+	require.NoError(t, svc.validateLinkedAccount(context.Background(), MonitorProviderGemini, int64Ptr(1)))
+	require.ErrorIs(t, svc.validateLinkedAccount(context.Background(), MonitorProviderGrok, int64Ptr(1)), ErrChannelMonitorProviderIncompatible)
+	require.ErrorIs(t, svc.validateLinkedAccount(context.Background(), MonitorProviderGemini, int64Ptr(404)), ErrChannelMonitorAccountRequired)
 
 	noFetcher := NewChannelMonitorService(nil, nil)
-	require.ErrorIs(t, noFetcher.validateLinkedAccount(context.Background(), MonitorProviderKimi, int64Ptr(1)), ErrChannelMonitorAccountRequired)
+	require.ErrorIs(t, noFetcher.validateLinkedAccount(context.Background(), MonitorProviderGemini, int64Ptr(1)), ErrChannelMonitorAccountRequired)
 }
 
 func TestRevalidateLinkedAccount_QuotaErrorsProbeUnbinds(t *testing.T) {
@@ -405,28 +406,28 @@ func TestRevalidateLinkedAccount_QuotaErrorsProbeUnbinds(t *testing.T) {
 	svc := NewChannelMonitorService(nil, nil)
 	svc.SetQuotaFetcher(fetcher)
 
-	quota := &ChannelMonitor{Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeQuota, AccountID: int64Ptr(9)}
+	quota := &ChannelMonitor{Provider: MonitorProviderGemini, CheckMode: MonitorCheckModeQuota, AccountID: int64Ptr(9)}
 	require.ErrorIs(t, svc.revalidateLinkedAccount(context.Background(), quota), ErrChannelMonitorAccountRequired)
 	require.NotNil(t, quota.AccountID)
 
-	probe := &ChannelMonitor{Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeProbe, AccountID: int64Ptr(9)}
+	probe := &ChannelMonitor{Provider: MonitorProviderGemini, CheckMode: MonitorCheckModeProbe, AccountID: int64Ptr(9)}
 	require.NoError(t, svc.revalidateLinkedAccount(context.Background(), probe))
 	require.Nil(t, probe.AccountID, "probe mode should silently unbind stale account")
 
-	quotaNoAccount := &ChannelMonitor{Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeQuota}
+	quotaNoAccount := &ChannelMonitor{Provider: MonitorProviderGemini, CheckMode: MonitorCheckModeQuota}
 	require.ErrorIs(t, svc.revalidateLinkedAccount(context.Background(), quotaNoAccount), ErrChannelMonitorAccountRequired)
 }
 
 func TestRevalidateLinkedAccount_PlatformMismatch(t *testing.T) {
 	svc := NewChannelMonitorService(nil, nil)
 	svc.SetQuotaFetcher(newQuotaModeFetcher(map[int64]*Account{
-		2: {ID: 2, Platform: domain.PlatformDeepseek},
+		2: {ID: 2, Platform: domain.PlatformGrok},
 	}, nil))
 
-	quota := &ChannelMonitor{Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeQuota, AccountID: int64Ptr(2)}
+	quota := &ChannelMonitor{Provider: MonitorProviderGemini, CheckMode: MonitorCheckModeQuota, AccountID: int64Ptr(2)}
 	require.ErrorIs(t, svc.revalidateLinkedAccount(context.Background(), quota), ErrChannelMonitorProviderIncompatible)
 
-	probe := &ChannelMonitor{Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeProbe, AccountID: int64Ptr(2)}
+	probe := &ChannelMonitor{Provider: MonitorProviderGemini, CheckMode: MonitorCheckModeProbe, AccountID: int64Ptr(2)}
 	require.NoError(t, svc.revalidateLinkedAccount(context.Background(), probe))
 	require.Nil(t, probe.AccountID)
 }
@@ -438,39 +439,6 @@ func TestMonitorAccountQuotaCapability_Matrix(t *testing.T) {
 		account *Account
 		wantErr error
 	}{
-		{
-			name:    "deepseek coding has no quota endpoint",
-			account: &Account{ID: 1, Platform: domain.PlatformDeepseek, Credentials: map[string]any{"account_mode": AccountModeCoding}},
-			wantErr: ErrChannelMonitorAccountNotSupportable,
-		},
-		{
-			// 自定义域名 kimi coding：GetCodingPlanProvider 识别不到 → 无额度端点。
-			name: "custom-domain kimi coding unsupported",
-			account: &Account{ID: 2, Platform: domain.PlatformKimi, Type: AccountTypeAPIKey,
-				Credentials: map[string]any{"account_mode": AccountModeCoding, "base_url": "https://cw.example.com"}},
-			wantErr: ErrChannelMonitorAccountNotSupportable,
-		},
-		{
-			name:    "kimi coding default endpoint ok",
-			account: &Account{ID: 3, Platform: domain.PlatformKimi, Credentials: map[string]any{"account_mode": AccountModeCoding}},
-		},
-		{
-			name:    "zhipu coding default endpoint ok",
-			account: &Account{ID: 4, Platform: domain.PlatformZhipu, Credentials: map[string]any{"account_mode": AccountModeCoding}},
-		},
-		{
-			name:    "zhipu payg has no balance endpoint",
-			account: &Account{ID: 5, Platform: domain.PlatformZhipu},
-			wantErr: ErrChannelMonitorAccountNotSupportable,
-		},
-		{
-			name:    "kimi payg ok",
-			account: &Account{ID: 6, Platform: domain.PlatformKimi},
-		},
-		{
-			name:    "deepseek payg ok",
-			account: &Account{ID: 7, Platform: domain.PlatformDeepseek},
-		},
 		{
 			name:    "anthropic api key cannot query usage",
 			account: &Account{ID: 8, Platform: domain.PlatformAnthropic, Type: AccountTypeAPIKey},
@@ -522,45 +490,45 @@ func TestMonitorAccountQuotaCapability_Matrix(t *testing.T) {
 func TestValidateLinkedAccount_CapabilityRejected(t *testing.T) {
 	svc := NewChannelMonitorService(nil, nil)
 	svc.SetQuotaFetcher(newQuotaModeFetcher(map[int64]*Account{
-		1: {ID: 1, Platform: domain.PlatformDeepseek, Credentials: map[string]any{"account_mode": AccountModeCoding}},
+		1: {ID: 1, Platform: domain.PlatformOpenAI, Type: AccountTypeAPIKey},
 	}, nil))
 
-	err := svc.validateLinkedAccount(context.Background(), MonitorProviderDeepseek, int64Ptr(1))
+	err := svc.validateLinkedAccount(context.Background(), MonitorProviderOpenAI, int64Ptr(1))
 	require.ErrorIs(t, err, ErrChannelMonitorAccountNotSupportable)
 }
 
 func TestRevalidateLinkedAccount_Capability(t *testing.T) {
 	svc := NewChannelMonitorService(nil, nil)
 	svc.SetQuotaFetcher(newQuotaModeFetcher(map[int64]*Account{
-		2: {ID: 2, Platform: domain.PlatformDeepseek, Credentials: map[string]any{"account_mode": AccountModeCoding}},
+		2: {ID: 2, Platform: domain.PlatformOpenAI, Type: AccountTypeAPIKey},
 	}, nil))
 
-	quota := &ChannelMonitor{Provider: MonitorProviderDeepseek, CheckMode: MonitorCheckModeQuota, AccountID: int64Ptr(2)}
+	quota := &ChannelMonitor{Provider: MonitorProviderOpenAI, CheckMode: MonitorCheckModeQuota, AccountID: int64Ptr(2)}
 	require.ErrorIs(t, svc.revalidateLinkedAccount(context.Background(), quota), ErrChannelMonitorAccountNotSupportable)
 	require.NotNil(t, quota.AccountID, "quota mode keeps the binding for the admin to fix")
 
-	probe := &ChannelMonitor{Provider: MonitorProviderDeepseek, CheckMode: MonitorCheckModeProbe, AccountID: int64Ptr(2)}
+	probe := &ChannelMonitor{Provider: MonitorProviderOpenAI, CheckMode: MonitorCheckModeProbe, AccountID: int64Ptr(2)}
 	require.NoError(t, svc.revalidateLinkedAccount(context.Background(), probe))
 	require.Nil(t, probe.AccountID, "probe mode should silently unbind unusable account")
 }
 
 // provider-only 更新不得绕过 provider × check_mode 组合校验。
 func TestApplyMonitorUpdate_ProviderOnlyRevalidatesCheckMode(t *testing.T) {
-	probeKimi := func() *ChannelMonitor {
+	probeOpenAI := func() *ChannelMonitor {
 		return &ChannelMonitor{
-			Provider: MonitorProviderKimi, APIMode: MonitorAPIModeChatCompletions,
-			Endpoint: "https://api.kimi.com", PrimaryModel: "kimi-k2",
+			Provider: MonitorProviderOpenAI, APIMode: MonitorAPIModeChatCompletions,
+			Endpoint: "https://api.openai.com", PrimaryModel: "vendor-model",
 			CheckMode: MonitorCheckModeProbe,
 		}
 	}
 
 	provider := MonitorProviderAntigravity
-	err := applyMonitorUpdate(probeKimi(), ChannelMonitorUpdateParams{Provider: &provider})
+	err := applyMonitorUpdate(probeOpenAI(), ChannelMonitorUpdateParams{Provider: &provider})
 	require.ErrorIs(t, err, ErrChannelMonitorInvalidCheckMode)
 
 	// 带上 check_mode/account_id 的完整切换合法。
 	accountID := int64(3)
-	err = applyMonitorUpdate(probeKimi(), ChannelMonitorUpdateParams{
+	err = applyMonitorUpdate(probeOpenAI(), ChannelMonitorUpdateParams{
 		Provider: &provider, CheckMode: strPtr(MonitorCheckModeQuota), AccountID: &accountID,
 	})
 	require.NoError(t, err)
@@ -580,7 +548,7 @@ func TestApplyMonitorUpdate_ProviderOnlyRevalidatesCheckMode(t *testing.T) {
 func TestValidateProbeAPIKey_QuotaToProbeRequiresFreshKey(t *testing.T) {
 	svc := NewChannelMonitorService(nil, &duplicateChannelMonitorEncryptor{})
 
-	quota := &ChannelMonitor{Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeQuota, APIKey: "NEW:"}
+	quota := &ChannelMonitor{Provider: MonitorProviderOpenAI, CheckMode: MonitorCheckModeQuota, APIKey: "NEW:"}
 	require.NoError(t, svc.validateProbeAPIKey(quota, "")) // quota 模式不管 key
 
 	quota.CheckMode = MonitorCheckModeProbe
@@ -590,7 +558,7 @@ func TestValidateProbeAPIKey_QuotaToProbeRequiresFreshKey(t *testing.T) {
 	require.NoError(t, svc.validateProbeAPIKey(quota, "sk-fresh"))
 	// 密文解出非空明文 → 放行。
 	require.NoError(t, svc.validateProbeAPIKey(
-		&ChannelMonitor{Provider: MonitorProviderKimi, CheckMode: MonitorCheckModeProbe, APIKey: "OLD:sk-live"}, ""))
+		&ChannelMonitor{Provider: MonitorProviderOpenAI, CheckMode: MonitorCheckModeProbe, APIKey: "OLD:sk-live"}, ""))
 }
 
 // --- Duplicate：quota 模式空明文重加密 ---
@@ -599,8 +567,8 @@ func TestDuplicateChannelMonitorQuotaModeReencryptsEmptyKey(t *testing.T) {
 	accountID := int64(9)
 	source := &ChannelMonitor{
 		ID:              42,
-		Name:            "kimi-quota",
-		Provider:        MonitorProviderKimi,
+		Name:            "gemini-quota",
+		Provider:        MonitorProviderGemini,
 		APIMode:         MonitorAPIModeChatCompletions,
 		Endpoint:        "",
 		APIKey:          "OLD:", // 解密为空串（quota 监控的加密空 key）

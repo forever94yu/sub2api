@@ -24,7 +24,7 @@ function makeItem(overrides: Partial<UserMonitorView> = {}): UserMonitorView {
   return {
     id: 1,
     name: 'claude-main',
-    provider: 'kimi',
+    provider: 'openai',
     group_name: '',
     primary_model: 'quota',
     primary_status: 'operational',
@@ -60,7 +60,7 @@ describe('MonitorCard quota snapshot visibility', () => {
     isQuotaVisible.mockReturnValue(false)
     const wrapper = mountCard(
       makeItem({
-        latest_quota: { source: 'cn_quota', success: true, fetched_at: '2026-08-18T00:00:00Z' },
+        latest_quota: { source: 'usage', success: true, fetched_at: '2026-08-18T00:00:00Z' },
       }),
     )
     expect(wrapper.find('[data-testid="monitor-quota-view"]').exists()).toBe(false)
@@ -71,16 +71,16 @@ describe('MonitorCard quota snapshot visibility', () => {
     const wrapper = mountCard(
       makeItem({
         latest_quota: {
-          source: 'cn_quota',
+          source: 'usage',
           success: true,
-          plan_level: 'kimi-plus',
+          plan_level: 'pro',
           tiers: [{ window: 'daily', label: 'requests', used_percent: 60 }],
           fetched_at: '2026-08-18T00:00:00Z',
         },
       }),
     )
     expect(wrapper.find('[data-testid="monitor-quota-view"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('kimi-plus')
+    expect(wrapper.text()).toContain('pro')
   })
 
   it('never renders the quota block without a snapshot', () => {

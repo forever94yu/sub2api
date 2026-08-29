@@ -493,8 +493,8 @@ type GatewayCache interface {
 
 	// Reasoning content cache (Responses→Chat Completions 桥接）。
 	// SetReasoningContent 按 reasoning item id 缓存 reasoning 全文，供后续请求
-	// 在客户端不回传明文 summary 时回注 reasoning_content（DeepSeek thinking
-	// mode 要求回传，否则 400）。
+	// 在客户端不回传明文 summary 时回注 reasoning_content（部分 thinking
+	// 协议要求回传，否则 400）。
 	SetReasoningContent(ctx context.Context, itemID string, content string, ttl time.Duration) error
 	// GetReasoningContent 返回缓存的 reasoning 全文；未命中返回
 	// ErrReasoningContentNotFound，使 service 层无需依赖具体缓存实现即可

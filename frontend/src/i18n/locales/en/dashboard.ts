@@ -432,9 +432,6 @@ export default {
       gemini: 'Gemini',
       grok: 'Grok',
       antigravity: 'Antigravity',
-      kimi: 'Kimi',
-      zhipu: 'Zhipu GLM',
-      deepseek: 'DeepSeek'
     },
     // Check modes (how a monitor performs its checks)
     checkMode: {

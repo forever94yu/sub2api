@@ -25,16 +25,16 @@ func TestChannelMonitorQuotaModeRoundTrip(t *testing.T) {
 	repo := NewChannelMonitorRepository(integrationEntClient, integrationDB)
 
 	account := mustCreateAccount(t, integrationEntClient, &service.Account{
-		Name: "quota-linked-kimi", Platform: domain.PlatformKimi, Type: service.AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-kimi", "account_mode": service.AccountModeCoding},
+		Name: "quota-linked-openai", Platform: domain.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-test"},
 	})
 	t.Cleanup(func() {
 		_ = integrationEntClient.Account.DeleteOneID(account.ID).Exec(ctx)
 	})
 
 	created := &service.ChannelMonitor{
-		Name:             "kimi-quota-roundtrip",
-		Provider:         service.MonitorProviderKimi,
+		Name:             "openai-quota-roundtrip",
+		Provider:         service.MonitorProviderOpenAI,
 		APIMode:          service.MonitorAPIModeChatCompletions,
 		Endpoint:         "",
 		APIKey:           "encrypted-empty",
@@ -59,7 +59,7 @@ func TestChannelMonitorQuotaModeRoundTrip(t *testing.T) {
 	// Update：切换模式并清空关联账号（probe 化）。
 	loaded.CheckMode = service.MonitorCheckModeProbe
 	loaded.AccountID = nil
-	loaded.Endpoint = "https://api.moonshot.cn"
+	loaded.Endpoint = "https://api.vendor.example"
 	require.NoError(t, repo.Update(ctx, loaded))
 
 	reloaded, err := repo.GetByID(ctx, created.ID)

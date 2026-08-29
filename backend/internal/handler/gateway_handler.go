@@ -544,7 +544,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if result.ReasoningEffort == nil {
 				result.ReasoningEffort = service.NormalizeClaudeOutputEffort(parsedReq.OutputEffort)
 			}
-			// 国产模型 thinking-enabled 默认 effort 填充：Kimi/GLM/MiniMax 这些不支持 effort 档位的
+			// 为启用 thinking 但没有 effort 档位的兼容模型填充默认值。
 			// passback-required 上游，仅要 thinking 启用且 OutputEffort 未明确传递时，在 usage_log 写 "high"
 			// 避免该字段长期为 NULL（详见 DefaultEffortForThinkingEnabled 文档）。
 			if result.ReasoningEffort == nil && parsedReq.ThinkingEnabled {

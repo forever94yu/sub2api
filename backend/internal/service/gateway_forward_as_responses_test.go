@@ -141,7 +141,7 @@ func TestExtractResponsesReasoningEffortFromBody(t *testing.T) {
 	require.NotNil(t, got)
 	require.Equal(t, "high", *got)
 
-	maxGot := ExtractResponsesReasoningEffortFromBody([]byte(`{"model":"deepseek-v4-pro","reasoning":{"effort":"max"}}`))
+	maxGot := ExtractResponsesReasoningEffortFromBody([]byte(`{"model":"vendor-reasoning-v1","reasoning":{"effort":"max"}}`))
 	require.NotNil(t, maxGot)
 	require.Equal(t, "xhigh", *maxGot)
 
@@ -301,7 +301,7 @@ func TestHandleResponsesBufferedStreamingResponse_CompactSSEFormat(t *testing.T)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
-	// Simulate compact SSE format without spaces after colons (e.g. Kimi API)
+	// Simulate compact SSE format without spaces after colons (e.g. compact provider API)
 	resp := &http.Response{
 		Header: http.Header{"x-request-id": []string{"rid_compact"}},
 		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
@@ -332,7 +332,7 @@ func TestHandleResponsesStreamingResponse_CompactSSEFormat(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 
-	// Simulate compact SSE format without spaces after colons (e.g. Kimi API)
+	// Simulate compact SSE format without spaces after colons (e.g. compact provider API)
 	resp := &http.Response{
 		Header: http.Header{"x-request-id": []string{"rid_compact_stream"}},
 		Body: io.NopCloser(strings.NewReader(strings.Join([]string{

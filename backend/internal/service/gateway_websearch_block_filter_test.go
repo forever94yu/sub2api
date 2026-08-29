@@ -59,9 +59,9 @@ func TestFilterWebSearchHistoryBlocks_KeepsGenuineBlocksForAnthropicStrict(t *te
 }
 
 func TestFilterWebSearchHistoryBlocks_StripsAllBlocksForPassbackRequired(t *testing.T) {
-	// GLM only accepts text/thinking/image/tool_use/tool_result and rejects
+	// generic provider only accepts text/thinking/image/tool_use/tool_result and rejects
 	// server_tool_use with 400, so genuine blocks must be stripped as well.
-	out := FilterWebSearchHistoryBlocks([]byte(genuineWebSearchBody), "glm-4.7")
+	out := FilterWebSearchHistoryBlocks([]byte(genuineWebSearchBody), "vendor-reasoning-v1")
 
 	require.Equal(t, []string{"text", "text"}, collectContentTypes(t, out))
 	require.NotContains(t, string(out), "server_tool_use")
@@ -91,13 +91,13 @@ func TestFilterWebSearchHistoryBlocks_NoWebSearchBlocksFastPath(t *testing.T) {
 }
 
 func TestFilterWebSearchHistoryBlocks_EmptiedMessageGetsPlaceholder(t *testing.T) {
-	body := []byte(`{"model":"glm-4.7","messages":[` +
+	body := []byte(`{"model":"vendor-reasoning-v1","messages":[` +
 		`{"role":"user","content":[{"type":"text","text":"search"}]},` +
 		`{"role":"assistant","content":[` +
 		`{"type":"server_tool_use","id":"srvtoolu_01X","name":"web_search","input":{"query":"q"}},` +
 		`{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01X","content":[]}]}]}`)
 
-	out := FilterWebSearchHistoryBlocks(body, "glm-4.7")
+	out := FilterWebSearchHistoryBlocks(body, "vendor-reasoning-v1")
 
 	msgs := gjson.GetBytes(out, "messages").Array()
 	require.Len(t, msgs, 2)
@@ -127,14 +127,14 @@ func TestFilterWebSearchHistoryBlocks_InvalidMessagesUnchanged(t *testing.T) {
 }
 
 func TestFilterWebSearchHistoryBlocks_PreservesOtherToolBlocks(t *testing.T) {
-	body := []byte(`{"model":"glm-4.7","messages":[` +
+	body := []byte(`{"model":"vendor-reasoning-v1","messages":[` +
 		`{"role":"assistant","content":[` +
 		`{"type":"tool_use","id":"toolu_01A","name":"get_weather","input":{}},` +
 		`{"type":"server_tool_use","id":"srvtoolu_ws_abc","name":"web_search","input":{"query":"q"}},` +
 		`{"type":"text","text":"result"}]},` +
 		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01A","content":"sunny"}]}]}`)
 
-	out := FilterWebSearchHistoryBlocks(body, "glm-4.7")
+	out := FilterWebSearchHistoryBlocks(body, "vendor-reasoning-v1")
 
 	require.Equal(t, []string{"tool_use", "text", "tool_result"}, collectContentTypes(t, out))
 }

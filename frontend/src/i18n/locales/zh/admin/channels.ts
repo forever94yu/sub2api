@@ -535,7 +535,7 @@ export default {
         checkModeQuotaProbeHint: '探活的同时查询配额，用量快照附加在主模型结果上',
         linkedAccount: '关联账号',
         linkedAccountPlaceholder: '选择账号',
-        linkedAccountHint: '配额数据来自所选账号（复用账号管理侧的用量/余额查询）',
+        linkedAccountHint: '配额数据来自所选账号（复用账号管理侧的用量查询）',
         linkedAccountEmpty: '当前平台暂无账号，请先在账号管理中添加',
         linkedAccountMissing: '关联账号已不存在或不可访问，请重新选择账号',
         openAIQuotaProbeHint: '注意：OpenAI 平台的用量查询可能触发 Codex 探测请求，会消耗账号自身的额度（每 10 分钟最多触发一次）',

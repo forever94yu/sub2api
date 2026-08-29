@@ -59,7 +59,7 @@ describe('MonitorQuotaView', () => {
     expect(text).toContain('95%')
 
     const html = wrapper.html()
-    // 阈值配色：≥90 红 / ≥75 黄 / 其余绿（与账号页 CNProviderQuotaCell 对齐）
+    // 阈值配色：≥90 红 / ≥75 黄 / 其余绿
     expect(html).toContain('bg-emerald-500')
     expect(html).toContain('bg-amber-500')
     expect(html).toContain('bg-red-500')

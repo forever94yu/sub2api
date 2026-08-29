@@ -78,7 +78,7 @@ type ChannelMonitorService struct {
 	// scheduler 由 wire 通过 SetScheduler 注入；CRUD 后调用对应钩子即时同步任务。
 	// 测试或未注入场景下保持 nil，所有钩子调用变为 no-op。
 	scheduler MonitorScheduler
-	// quotaFetcher 由 wire 通过 SetQuotaFetcher 注入（accountUsage/CN 服务在本服务
+	// quotaFetcher 由 wire 通过 SetQuotaFetcher 注入（accountUsage 服务在本服务
 	// 之后构造，构造参数注入会破坏既有依赖顺序）。nil 时 fail-closed：
 	// 配额模式的检测产出「未配置」错误快照，Create/Update 关联账号直接报错。
 	quotaFetcher *ChannelMonitorQuotaFetcher
@@ -534,7 +534,7 @@ func (s *ChannelMonitorService) revalidateLinkedAccount(ctx context.Context, m *
 		m.AccountID = nil
 		return nil
 	}
-	// 能力失配（如 deepseek coding / zhipu payg / API-Key 型海外账号）：
+	// 能力失配（如 API-Key 型 OpenAI/Anthropic 账号）：
 	// quota 模式显式报错（有该类存量监控时编辑会被拦，出路是换账号或切 probe），
 	// probe 模式账号无用途，静默解绑。
 	if err := monitorAccountQuotaCapability(account); err != nil {

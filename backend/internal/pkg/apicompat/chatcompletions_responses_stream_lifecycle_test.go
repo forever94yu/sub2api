@@ -10,7 +10,7 @@ import (
 
 func collectStreamEvents(t *testing.T, chunks []string) []ResponsesStreamEvent {
 	t.Helper()
-	state := NewChatCompletionsToResponsesStreamState("deepseek-v4-pro")
+	state := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	var events []ResponsesStreamEvent
 	for _, payload := range chunks {
 		var chunk ChatCompletionsChunk
@@ -179,7 +179,7 @@ func TestStream_ToolCallLifecycleComplete(t *testing.T) {
 	require.True(t, sawItemDone, "function_call output_item.done missing")
 }
 
-// TestStream_ToolCallArgumentsInFirstChunkNotDoubled guards the GLM/Zhipu shape
+// TestStream_ToolCallArgumentsInFirstChunkNotDoubled guards the compact provider shape
 // where a single tool_call delta chunk carries id+name+arguments together.
 // Earlier code copied the whole tool_call (including arguments) into state and
 // then accumulated the same chunk's arguments again, producing a doubled,

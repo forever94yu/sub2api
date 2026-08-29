@@ -805,9 +805,8 @@ func TestLoadDefaultSecurityToggles(t *testing.T) {
 	}
 
 	wantHosts := []string{
-		"api.kimi.com",
-		"api.moonshot.ai",
-		"api.moonshot.cn",
+		"api.openai.com",
+		"api.anthropic.com",
 	}
 	hostSet := make(map[string]struct{}, len(cfg.Security.URLAllowlist.UpstreamHosts))
 	for _, h := range cfg.Security.URLAllowlist.UpstreamHosts {

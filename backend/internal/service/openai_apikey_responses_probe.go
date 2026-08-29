@@ -34,8 +34,7 @@ const openaiResponsesProbeMaxOutputTokens = 512
 //
 // 关键设计:请求携带一个工具并以 tool_choice=required 强制模型调用它。这样
 // 一个真正支持 Responses 工具调用的上游必须在响应里产出 function_call 输出项;
-// 而"端点存在、基础补全可用、但工具调用坏掉"的上游(如火山方舟 coding/v3 ×
-// kimi-k2.6,只回 reasoning、不产出 function_call)会被这一步暴露出来。
+// 而"端点存在、基础补全可用、但工具调用坏掉"的上游会被这一步暴露出来。
 //
 // Stream=false 便于一次性读取 output 数组判定;不带 instructions 以免干扰。
 func openaiResponsesProbePayload(modelID string) []byte {
@@ -104,7 +103,7 @@ func selectResponsesProbeModel(account *Account) string {
 // 探测策略（参见包文档 internal/pkg/openai_compat）：
 //   - 上游 404 / 405 → 端点不存在,写 false
 //   - 上游 2xx → 端点存在,进一步看工具能力:响应含 function_call 输出项才写 true;
-//     仅 reasoning / 无 function_call(如火山方舟 coding/v3 × kimi-k2.6)写 false
+//     仅 reasoning / 无 function_call 写 false
 //   - 其他非 2xx（401/422/400/5xx 等）→ 端点存在但无法判定工具能力,保守写 true
 //   - 网络层失败（连接错误、超时）→ 不写标记，保持 unknown
 //     （后续请求仍按"现状即证据"默认走 Responses）
@@ -120,23 +119,6 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 		return
 	}
 	if account.Type != AccountTypeAPIKey {
-		return
-	}
-	if account.IsCNProvider() {
-		// 国产 OpenAI 兼容上游（kimi/zhipu/deepseek）普遍仅支持 /v1/chat/completions，
-		// 不存在 /v1/responses 端点。直接落标 false 走 Chat Completions 直转，跳过网络探测。
-		// 例外：deepseek 的 responses 协议账号（api_protocol=responses）使用官方原生
-		// /responses 端点，落标 force_responses 强制走 Responses 路径。
-		if account.GetAPIProtocol() == APIProtocolResponses {
-			_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
-				openai_compat.ExtraKeyResponsesMode:      string(openai_compat.ResponsesSupportModeForceResponses),
-				openai_compat.ExtraKeyResponsesSupported: true,
-			})
-			return
-		}
-		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
-			openai_compat.ExtraKeyResponsesSupported: false,
-		})
 		return
 	}
 	if account.Platform != PlatformOpenAI {
@@ -254,8 +236,7 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 //     预算不足造成的，不是上游能力缺失。
 //   - status=failed：HTTP 200 携带的失败响应（上游瞬时故障）同样不构成能力证据。
 //
-// 其余 2xx 一律可下结论——尤其 status=completed 却只回 reasoning 的上游（火山方舟
-// coding/v3 × kimi-k2.6），仍按原逻辑判为不支持。
+// 其余 2xx 一律可下结论；status=completed 却只回 reasoning 的上游仍判为不支持。
 //
 // 非 2xx 的结论只看状态码、不依赖响应内容，恒可下结论。
 // 缺少 status 字段的响应体（含非 JSON）也按可下结论处理，保持既有行为。
@@ -276,7 +257,7 @@ func responsesProbeVerdictIsConclusive(status int, body []byte) bool {
 // isResponsesEndpointSupportedByStatus 根据探测响应的 HTTP 状态码判定上游
 // 是否暴露 /v1/responses 端点。
 //
-// 关键观察：第三方 OpenAI 兼容上游（DeepSeek/Kimi 等）对未知端点统一返回 404
+// 关键观察：部分第三方 OpenAI 兼容上游对未知端点统一返回 404
 // 或 405；而 OpenAI 官方/有 Responses 实现的上游会因为请求体最简（缺字段）
 // 返回 400/422 等业务错误，但端点本身存在。
 //
@@ -298,7 +279,7 @@ func isResponsesEndpointSupportedByStatus(status int) bool {
 //   - 其他非 2xx（401/403/422/5xx 等）：端点存在,但本次无法判定工具能力
 //     （鉴权/校验/瞬时故障）→ 保守按 true,保持既有"端点存在即支持"行为
 //   - 2xx：探测以 tool_choice=required 强制工具调用,响应必须含 function_call
-//     输出项才算真正可用;否则(如火山方舟 coding/v3 × kimi-k2.6 仅回 reasoning)
+//     输出项才算真正可用;否则（例如仅回 reasoning）
 //     判为 false,使网关改走 /v1/chat/completions 直转路径。
 func decideResponsesProbeSupport(status int, body []byte) bool {
 	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {

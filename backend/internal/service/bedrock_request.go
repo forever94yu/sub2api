@@ -108,7 +108,6 @@ func isLikelyBedrockModelID(modelID string) bool {
 		"mistral.",
 		"cohere.",
 		"ai21.",
-		"deepseek.",
 		"stability.",
 		"writer.",
 		"nova.",

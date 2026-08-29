@@ -86,16 +86,6 @@ const antigravityModels = [
   'tab_flash_lite_preview'
 ]
 
-// 智谱 GLM
-const zhipuModels = [
-  'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
-  'glm-4-air', 'glm-4-airx', 'glm-4-long', 'glm-4-flash',
-  'glm-4v-plus', 'glm-4.5', 'glm-4.6',
-  'glm-3-turbo', 'glm-4-alltools',
-  'chatglm_turbo', 'chatglm_pro', 'chatglm_std', 'chatglm_lite',
-  'cogview-3', 'cogvideo'
-]
-
 // 阿里 通义千问
 const qwenModels = [
   'qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-max-longcontext', 'qwen-long',
@@ -105,15 +95,6 @@ const qwenModels = [
   'qwen2.5-coder-32b-instruct', 'qwen2.5-coder-14b-instruct', 'qwen2.5-coder-7b-instruct',
   'qwen3-235b-a22b',
   'qwq-32b', 'qwq-32b-preview'
-]
-
-// DeepSeek
-const deepseekModels = [
-  'deepseek-chat', 'deepseek-coder', 'deepseek-reasoner',
-  'deepseek-v3', 'deepseek-v3-0324',
-  'deepseek-r1', 'deepseek-r1-0528',
-  'deepseek-r1-distill-qwen-32b', 'deepseek-r1-distill-qwen-14b', 'deepseek-r1-distill-qwen-7b',
-  'deepseek-r1-distill-llama-70b', 'deepseek-r1-distill-llama-8b'
 ]
 
 // Mistral
@@ -179,14 +160,6 @@ const yiModels = [
   'yi-1.5-34b-chat', 'yi-1.5-9b-chat', 'yi-1.5-6b-chat'
 ]
 
-// Moonshot/Kimi
-const moonshotModels = [
-  'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k',
-  'kimi-latest',
-  'kimi-for-coding',
-  'kimi-k2'
-]
-
 // 字节跳动 豆包
 const doubaoModels = [
   'doubao-pro-256k', 'doubao-pro-128k', 'doubao-pro-32k', 'doubao-pro-4k',
@@ -238,15 +211,12 @@ const allModelsList: string[] = [
   ...openaiModels,
   ...claudeModels,
   ...geminiModels,
-  ...zhipuModels,
   ...qwenModels,
-  ...deepseekModels,
   ...mistralModels,
   ...metaModels,
   ...xaiModels,
   ...cohereModels,
   ...yiModels,
-  ...moonshotModels,
   ...doubaoModels,
   ...minimaxModels,
   ...baiduModels,
@@ -421,17 +391,13 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
-    case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
-    case 'deepseek': return deepseekModels
     case 'mistral': return mistralModels
     case 'meta': return metaModels
     case 'xai':
     case 'grok': return xaiModels
     case 'cohere': return cohereModels
     case 'yi': return yiModels
-    case 'moonshot':
-    case 'kimi': return moonshotModels
     case 'doubao': return doubaoModels
     case 'minimax': return minimaxModels
     case 'baidu': return baiduModels

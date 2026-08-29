@@ -116,7 +116,7 @@ func TestUpdateUserPlatformQuotas_Success(t *testing.T) {
 	if repo.upsertCalls[0].userID != 42 || len(repo.upsertCalls[0].records) != 5 {
 		t.Errorf("unexpected upsert call: %+v", repo.upsertCalls[0])
 	}
-	// 缓存失效：按全部允许平台统一失效（含 kimi/zhipu/deepseek）。
+	// 缓存失效：按全部允许平台统一失效。
 	if len(cache.deleteCalls) != len(service.AllowedQuotaPlatforms) {
 		t.Errorf("expected %d cache delete calls, got %d: %+v", len(service.AllowedQuotaPlatforms), len(cache.deleteCalls), cache.deleteCalls)
 	}

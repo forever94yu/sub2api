@@ -176,7 +176,7 @@ func TestAdminService_CompositeModelsListCandidatesExcludeRemovedPlatformMapping
 			},
 			{
 				ID:       3,
-				Platform: PlatformKimi,
+				Platform: "kimi",
 				Credentials: map[string]any{
 					"model_mapping": map[string]any{"kimi-custom": "kimi-k2"},
 				},

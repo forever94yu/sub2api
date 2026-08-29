@@ -14,7 +14,7 @@ import (
 
 func TestResponsesToChatCompletionsRequest_CustomToolBecomesFunctionTool(t *testing.T) {
 	req := &ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"run dir"`),
 		Tools: []ResponsesTool{
 			{Type: "custom", Name: "exec", Description: "Run JavaScript code"},
@@ -106,7 +106,7 @@ func TestEffectiveResponsesTools_RejectsMalformedAdditionalTools(t *testing.T) {
 
 func TestResponsesToChatCompletionsRequest_DropsToolChoiceWhenNoConvertibleTools(t *testing.T) {
 	req := &ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "web_search"},
@@ -124,7 +124,7 @@ func TestResponsesToChatCompletionsRequest_DropsToolChoiceWhenNoConvertibleTools
 
 func TestResponsesToChatCompletionsRequest_CustomToolChoiceMapsToFunctionChoice(t *testing.T) {
 	req := &ResponsesRequest{
-		Model:      "glm-5.2",
+		Model:      "vendor-reasoning-v1",
 		Input:      json.RawMessage(`"run dir"`),
 		Tools:      []ResponsesTool{{Type: "custom", Name: "exec"}},
 		ToolChoice: json.RawMessage(`{"type":"custom","name":"exec"}`),
@@ -173,7 +173,7 @@ func TestChatCompletionsResponseToResponses_CustomToolCallOutputItem(t *testing.
 		}},
 	}
 
-	out := ChatCompletionsResponseToResponses(resp, "glm-5.2", map[string]bool{"exec": true}, false, nil)
+	out := ChatCompletionsResponseToResponses(resp, "vendor-reasoning-v1", map[string]bool{"exec": true}, false, nil)
 	require.Len(t, out.Output, 2)
 
 	assert.Equal(t, "custom_tool_call", out.Output[0].Type)
@@ -196,7 +196,7 @@ func TestExtractCustomToolCallInput_FallsBackToRawArguments(t *testing.T) {
 }
 
 func TestChatCompletionsChunkToResponsesEvents_CustomToolCallStream(t *testing.T) {
-	state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	state := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	state.CustomTools = map[string]bool{"exec": true}
 
 	idx := 0
@@ -266,7 +266,7 @@ func TestChatCompletionsChunkToResponsesEvents_CustomToolCallStream(t *testing.T
 
 func TestResponsesToChatCompletionsRequest_ToolSearchToolBecomesProxyFunction(t *testing.T) {
 	req := &ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{{Type: "tool_search"}},
 	}
@@ -296,7 +296,7 @@ func TestChatCompletionsResponseToResponses_ToolSearchCallOutputItem(t *testing.
 		}},
 	}
 
-	out := ChatCompletionsResponseToResponses(resp, "glm-5.2", nil, true, nil)
+	out := ChatCompletionsResponseToResponses(resp, "vendor-reasoning-v1", nil, true, nil)
 	require.Len(t, out.Output, 1)
 
 	item := out.Output[0]
@@ -328,13 +328,13 @@ func TestChatCompletionsResponseToResponses_ToolSearchNotDeclaredKeepsFunctionCa
 	}
 
 	// 客户端未声明 type=tool_search 时，同名普通 function 工具不受影响。
-	out := ChatCompletionsResponseToResponses(resp, "glm-5.2", nil, false, nil)
+	out := ChatCompletionsResponseToResponses(resp, "vendor-reasoning-v1", nil, false, nil)
 	require.Len(t, out.Output, 1)
 	assert.Equal(t, "function_call", out.Output[0].Type)
 }
 
 func TestChatCompletionsChunkToResponsesEvents_ToolSearchCallStream(t *testing.T) {
-	state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	state := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	state.ToolSearchDeclared = true
 
 	idx := 0
@@ -407,7 +407,7 @@ func TestHasToolSearchTool(t *testing.T) {
 
 func TestResponsesToChatCompletionsRequest_NamespaceToolFlattensChildren(t *testing.T) {
 	req := &ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{{
 			Type: "namespace",
@@ -429,7 +429,7 @@ func TestResponsesToChatCompletionsRequest_NamespaceToolFlattensChildren(t *test
 
 func TestResponsesToolsParsing_StringToolBecomesCustom(t *testing.T) {
 	var req ResponsesRequest
-	require.NoError(t, json.Unmarshal([]byte(`{"model":"glm-5.2","input":"hi","tools":["exec",{"type":"function","name":"wait"}]}`), &req))
+	require.NoError(t, json.Unmarshal([]byte(`{"model":"vendor-reasoning-v1","input":"hi","tools":["exec",{"type":"function","name":"wait"}]}`), &req))
 
 	require.Len(t, req.Tools, 2)
 	assert.Equal(t, "custom", req.Tools[0].Type)
@@ -484,7 +484,7 @@ func TestResponsesInputToChatMessages_NamespacedFunctionCallHistory(t *testing.T
 }
 
 func TestChatCompletionsChunkToResponsesEvents_CustomToolNameArrivesLate(t *testing.T) {
-	state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	state := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	state.CustomTools = map[string]bool{"exec": true}
 
 	idx := 0
@@ -519,7 +519,7 @@ func TestChatCompletionsChunkToResponsesEvents_CustomToolNameArrivesLate(t *test
 }
 
 func TestChatCompletionsChunkToResponsesEvents_FunctionToolNameArrivesLate(t *testing.T) {
-	state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	state := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	state.CustomTools = map[string]bool{"exec": true}
 
 	idx := 0
@@ -612,7 +612,7 @@ func TestNamespaceToolNames_MapsFlattenedNames(t *testing.T) {
 func TestResponsesToChatCompletionsRequest_RejectsToolSearchNameConflict(t *testing.T) {
 	// 与顶层 function 工具同名。
 	_, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "tool_search"},
@@ -624,7 +624,7 @@ func TestResponsesToChatCompletionsRequest_RejectsToolSearchNameConflict(t *test
 
 	// 与顶层 custom 工具同名。
 	_, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "custom", Name: "tool_search"},
@@ -635,7 +635,7 @@ func TestResponsesToChatCompletionsRequest_RejectsToolSearchNameConflict(t *test
 
 	// 重复声明 type=tool_search 去重后只产出一个代理，不拒绝。
 	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{{Type: "tool_search"}, {Type: "tool_search"}},
 	})
@@ -649,7 +649,7 @@ func TestResponsesToChatCompletionsRequest_RejectsToolSearchNameConflict(t *test
 func TestResponsesToChatCompletionsRequest_DropsToolChoiceForDroppedTool(t *testing.T) {
 	// 强制选择被丢弃的 web_search：工具没了，选择项也必须丢。
 	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "function", Name: "wait", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)},
@@ -662,7 +662,7 @@ func TestResponsesToChatCompletionsRequest_DropsToolChoiceForDroppedTool(t *test
 	assert.Empty(t, out.ToolChoice, "指向被丢弃服务端工具的 tool_choice 必须丢弃")
 
 	out, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "function", Name: "wait", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)},
@@ -677,7 +677,7 @@ func TestResponsesToChatCompletionsRequest_DropsToolChoiceForDroppedTool(t *test
 
 	// 具名选择指向不存在的工具名。
 	out, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model:      "glm-5.2",
+		Model:      "vendor-reasoning-v1",
 		Input:      json.RawMessage(`"hi"`),
 		Tools:      []ResponsesTool{{Type: "function", Name: "wait"}},
 		ToolChoice: json.RawMessage(`{"type":"function","name":"missing"}`),
@@ -687,7 +687,7 @@ func TestResponsesToChatCompletionsRequest_DropsToolChoiceForDroppedTool(t *test
 
 	// 字符串形式与指向幸存工具的选择保持原有转发行为。
 	out, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model:      "glm-5.2",
+		Model:      "vendor-reasoning-v1",
 		Input:      json.RawMessage(`"hi"`),
 		Tools:      []ResponsesTool{{Type: "function", Name: "wait"}},
 		ToolChoice: json.RawMessage(`"auto"`),
@@ -696,7 +696,7 @@ func TestResponsesToChatCompletionsRequest_DropsToolChoiceForDroppedTool(t *test
 	assert.JSONEq(t, `"auto"`, string(out.ToolChoice))
 
 	out, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model:      "glm-5.2",
+		Model:      "vendor-reasoning-v1",
 		Input:      json.RawMessage(`"hi"`),
 		Tools:      []ResponsesTool{{Type: "function", Name: "wait"}},
 		ToolChoice: json.RawMessage(`{"type":"function","name":"wait"}`),
@@ -710,7 +710,7 @@ func TestResponsesToChatCompletionsRequest_DropsToolChoiceForDroppedTool(t *test
 // 自动选择，模型可以不执行搜索）。
 func TestResponsesToChatCompletionsRequest_ToolSearchToolChoiceMapsToProxy(t *testing.T) {
 	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model:      "glm-5.2",
+		Model:      "vendor-reasoning-v1",
 		Input:      json.RawMessage(`"hi"`),
 		Tools:      []ResponsesTool{{Type: "tool_search"}},
 		ToolChoice: json.RawMessage(`{"type":"tool_search"}`),
@@ -720,7 +720,7 @@ func TestResponsesToChatCompletionsRequest_ToolSearchToolChoiceMapsToProxy(t *te
 
 	// 未声明 type=tool_search 时强制选择它没有可指向的代理，丢弃选择项。
 	out, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model:      "glm-5.2",
+		Model:      "vendor-reasoning-v1",
 		Input:      json.RawMessage(`"hi"`),
 		Tools:      []ResponsesTool{{Type: "function", Name: "wait"}},
 		ToolChoice: json.RawMessage(`{"type":"tool_search"}`),
@@ -735,7 +735,7 @@ func TestResponsesToChatCompletionsRequest_ToolSearchToolChoiceMapsToProxy(t *te
 func TestResponsesToChatCompletionsRequest_RejectsAmbiguousFlattenedNames(t *testing.T) {
 	// 摊平名与顶层 function 工具撞名。
 	_, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "function", Name: "gmail__send"},
@@ -747,7 +747,7 @@ func TestResponsesToChatCompletionsRequest_RejectsAmbiguousFlattenedNames(t *tes
 
 	// 不同 namespace 组合产生相同摊平名。
 	_, err = ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "namespace", Name: "a", Tools: []ResponsesTool{{Type: "function", Name: "b__c"}}},
@@ -761,7 +761,7 @@ func TestResponsesToChatCompletionsRequest_RejectsAmbiguousFlattenedNames(t *tes
 // 完全相同的 (namespace, 子工具) 重复声明不构成歧义：去重后正常转换，不拒绝。
 func TestResponsesToChatCompletionsRequest_DedupesIdenticalNamespaceChildren(t *testing.T) {
 	out, err := ResponsesToChatCompletionsRequest(&ResponsesRequest{
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Input: json.RawMessage(`"hi"`),
 		Tools: []ResponsesTool{
 			{Type: "namespace", Name: "gmail", Tools: []ResponsesTool{
@@ -795,7 +795,7 @@ func TestChatCompletionsResponseToResponses_NamespacedToolCallRestored(t *testin
 		"mcp__svc__echo": {Namespace: "mcp__svc", Name: "echo"},
 	}
 
-	out := ChatCompletionsResponseToResponses(resp, "glm-5.2", nil, false, nsTools)
+	out := ChatCompletionsResponseToResponses(resp, "vendor-reasoning-v1", nil, false, nsTools)
 	require.Len(t, out.Output, 2)
 
 	item := out.Output[0]
@@ -820,7 +820,7 @@ func TestChatCompletionsResponseToResponses_NamespacedToolCallRestored(t *testin
 }
 
 func TestChatCompletionsChunkToResponsesEvents_NamespacedToolCallStream(t *testing.T) {
-	state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	state := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	state.NamespaceTools = map[string]NamespacedToolName{
 		"mcp__svc__echo": {Namespace: "mcp__svc", Name: "echo"},
 	}
@@ -893,7 +893,7 @@ func TestChatCompletionsChunkToResponsesEvents_NamespacedToolCallStream(t *testi
 }
 
 func TestChatCompletionsChunkToResponsesEvents_NamespacedToolNameArrivesLate(t *testing.T) {
-	state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	state := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	state.NamespaceTools = map[string]NamespacedToolName{
 		"mcp__svc__echo": {Namespace: "mcp__svc", Name: "echo"},
 	}
@@ -930,7 +930,7 @@ func TestChatCompletionsChunkToResponsesEvents_NamespacedToolNameArrivesLate(t *
 }
 
 func TestChatCompletionsChunkToResponsesEvents_FunctionToolStreamUnaffected(t *testing.T) {
-	state := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	state := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	state.CustomTools = map[string]bool{"exec": true}
 
 	idx := 0

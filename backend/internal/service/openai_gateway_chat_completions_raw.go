@@ -20,7 +20,7 @@ import (
 //
 // **关键**：不能复用 openaiAllowedHeaders——后者含 Codex 客户端专属 header
 // （originator / session_id / x-codex-turn-state / x-codex-turn-metadata / conversation_id），
-// 这些在 ChatGPT OAuth 上游是必需的，但透传给 DeepSeek/Kimi/GLM 等第三方
+// 这些在 ChatGPT OAuth 上游是必需的，但透传给第三方
 // OpenAI 兼容上游会造成：
 //   - 完全忽略（多数友好厂商）——隐性污染上游统计
 //   - 400 "unknown parameter"（严格上游）——可见错误
@@ -39,7 +39,7 @@ var openaiCCRawAllowedHeaders = map[string]bool{
 // `{base_url}/v1/chat/completions`，**不**做 CC↔Responses 协议转换。
 //
 // 适用场景：account.platform=openai && account.type=apikey && 上游已被探测确认
-// 不支持 /v1/responses 端点（如 DeepSeek/Kimi/GLM/Qwen 等第三方 OpenAI 兼容上游）。
+// 不支持 /v1/responses 端点（如部分第三方 OpenAI 兼容上游）。
 //
 // 与 ForwardAsChatCompletions 的关键差异：
 //
@@ -82,7 +82,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		grokCacheIdentity = resolveGrokCacheIdentity(c, body, "", upstreamModel)
 	}
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
-	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
+	// 兼容模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 
 	// 3. Rewrite model in body (no protocol conversion)
@@ -90,10 +90,6 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if upstreamModel != originalModel {
 		upstreamBody = ReplaceModelInBody(body, upstreamModel)
 	}
-	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
-		upstreamBody = normalizedBody
-	}
-
 	// 4. Apply OpenAI fast policy on the CC body
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, upstreamBody)
 	if policyErr != nil {

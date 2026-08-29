@@ -148,28 +148,28 @@ func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t
 	require.NotNil(t, result.FirstTokenMs)
 }
 
-func TestForwardResponses_DeepSeekReasoningOnlyStreamProducesVisibleText(t *testing.T) {
+func TestForwardResponses_ReasoningOnlyStreamProducesVisibleText(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"deepseek-reasoner","input":"hello","stream":true}`)
+	body := []byte(`{"model":"vendor-reasoner","input":"hello","stream":true}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	upstreamBody := strings.Join([]string{
-		`data: {"id":"chatcmpl_reasoning","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl_reasoning","object":"chat.completion.chunk","model":"vendor-reasoner","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"finish_reason":null}]}`,
 		"",
-		`data: {"id":"chatcmpl_reasoning","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"reasoning_content":"visible fallback"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl_reasoning","object":"chat.completion.chunk","model":"vendor-reasoner","choices":[{"index":0,"delta":{"reasoning_content":"visible fallback"},"finish_reason":null}]}`,
 		"",
-		`data: {"id":"chatcmpl_reasoning","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":""},"finish_reason":"length"}],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}`,
+		`data: {"id":"chatcmpl_reasoning","object":"chat.completion.chunk","model":"vendor-reasoner","choices":[{"index":0,"delta":{"content":""},"finish_reason":"length"}],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}`,
 		"",
 		"data: [DONE]",
 		"",
 	}, "\n")
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_deepseek_reasoning_responses_stream"}},
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_vendor_reasoning_responses_stream"}},
 		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
 	}}
 	svc := &OpenAIGatewayService{
@@ -266,26 +266,26 @@ func (c *reasoningRecordingCache) snapshotSets() map[string]string {
 }
 
 // 流式响应里的 reasoning_content 应按 reasoning item id 写入缓存，供后续轮次
-// 客户端不回传明文 summary 时回注（DeepSeek thinking mode 400 修复的写入侧）。
+// 客户端不回传明文 summary 时回注（reasoning mode 400 修复的写入侧）。
 func TestForwardResponses_ChatFallbackCachesStreamedReasoning(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"deepseek-reasoner","input":"hello","stream":true}`)
+	body := []byte(`{"model":"vendor-reasoner","input":"hello","stream":true}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	upstreamBody := strings.Join([]string{
-		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"vendor-reasoner","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`,
 		"",
-		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"reasoning_content":"think "},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"vendor-reasoner","choices":[{"index":0,"delta":{"reasoning_content":"think "},"finish_reason":null}]}`,
 		"",
-		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"reasoning_content":"first"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"vendor-reasoner","choices":[{"index":0,"delta":{"reasoning_content":"first"},"finish_reason":null}]}`,
 		"",
-		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":"answer"},"finish_reason":"stop"}]}`,
+		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"vendor-reasoner","choices":[{"index":0,"delta":{"content":"answer"},"finish_reason":"stop"}]}`,
 		"",
-		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"deepseek-reasoner","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}`,
+		`data: {"id":"chatcmpl_rc","object":"chat.completion.chunk","model":"vendor-reasoner","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}`,
 		"",
 		"data: [DONE]",
 		"",
@@ -320,7 +320,7 @@ func TestForwardResponses_ChatFallbackRestoresReasoningFromCache(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{
-		"model":"deepseek-reasoner",
+		"model":"vendor-reasoner",
 		"stream":false,
 		"input":[
 			{"type":"reasoning","id":"item_plain","summary":[{"type":"summary_text","text":"plain thinking"}]},
@@ -341,7 +341,7 @@ func TestForwardResponses_ChatFallbackRestoresReasoningFromCache(t *testing.T) {
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_reasoning_cache_restore"}},
 		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_restore","object":"chat.completion","model":"deepseek-reasoner","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+			`{"id":"chatcmpl_restore","object":"chat.completion","model":"vendor-reasoner","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
 		)),
 	}}
 	cache := &reasoningRecordingCache{

@@ -69,7 +69,7 @@ func TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets(t *testing.T) {
 }
 
 func TestCompositeConcretePlatformsRejectRemovedProviders(t *testing.T) {
-	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+	for _, platform := range []string{"kimi", "zhipu", "deepseek"} {
 		require.False(t, isConcreteRequestPlatform(platform))
 		require.False(t, canCopyAccountsFromGroupPlatform(PlatformComposite, platform))
 	}

@@ -18,19 +18,9 @@ func TestResolveThinkingProtocol(t *testing.T) {
 		{"upper case Claude", "Claude-Sonnet-4-5", ThinkingProtocolAnthropicStrict},
 
 		// 第三方兼容上游
-		{"deepseek-v4-pro", "deepseek-v4-pro", ThinkingProtocolPassbackRequired},
-		{"deepseek-r2-thinking", "deepseek-r2-thinking", ThinkingProtocolPassbackRequired},
-		{"kimi-coding", "kimi-coding-v2", ThinkingProtocolPassbackRequired},
-		{"kimi-k2-thinking", "kimi-k2-thinking", ThinkingProtocolPassbackRequired},
-		{"kimi-k3 platform", "kimi-k3", ThinkingProtocolPassbackRequired},
-		{"kimi code bare k3", "k3", ThinkingProtocolPassbackRequired},
-		{"kimi code bare k3-256k", "k3-256k", ThinkingProtocolPassbackRequired},
-		{"moonshot-v1", "moonshot-v1-32k", ThinkingProtocolPassbackRequired},
-		{"glm-5.1", "glm-5.1", ThinkingProtocolPassbackRequired},
 		{"qwen-2 thinking variant", "qwen-2-72b-thinking", ThinkingProtocolPassbackRequired},
 		{"qwen3 thinking (real Alibaba naming)", "qwen3-235b-a22b-thinking-2507", ThinkingProtocolPassbackRequired},
 		{"qwen3-next thinking", "qwen3-next-80b-a3b-thinking", ThinkingProtocolPassbackRequired},
-		{"upper case Deepseek", "DeepSeek-V4-Pro", ThinkingProtocolPassbackRequired},
 
 		// MiniMax M 系列（Anthropic 兼容端点要求 thinking round-trip）
 		{"MiniMax-M2 (case-sensitive original)", "MiniMax-M2", ThinkingProtocolPassbackRequired},
@@ -47,8 +37,7 @@ func TestResolveThinkingProtocol(t *testing.T) {
 		{"qwen3 non-thinking", "qwen3-32b", ThinkingProtocolUnknown},
 		{"qwen2 non-thinking", "qwen-2-72b", ThinkingProtocolUnknown},
 		{"random vendor", "yi-large", ThinkingProtocolUnknown},
-		// 相似但未知的 k3 型号：不得因含 k3 被宽泛匹配为 passback-required
-		{"k3-like unknown", "foo-k3-bar", ThinkingProtocolUnknown},
+		{"custom third party", "vendor-reasoning-v1", ThinkingProtocolUnknown},
 		// MiniMax 非 M 系列（如 abab、speech 等其他产品线）—— unknown
 		{"minimax abab non-M", "abab6.5-chat", ThinkingProtocolUnknown},
 		// Doubao 走 OpenAI 协议，不属于本网关 Anthropic 路径——归 unknown
@@ -75,9 +64,7 @@ func TestShouldPreFilterThinkingBlocks(t *testing.T) {
 		want    bool
 	}{
 		{"claude-sonnet-4-5", true},
-		{"deepseek-v4-pro", false},
-		{"kimi-coding", false},
-		{"glm-5.1", false},
+		{"vendor-reasoning-v1", false},
 		{"gpt-5.1", false},
 		{"", false},
 	}
@@ -94,8 +81,8 @@ func TestShouldRectifyThinkingSignatureError(t *testing.T) {
 	if !ShouldRectifyThinkingSignatureError("claude-sonnet-4-5") {
 		t.Error("anthropic-strict should rectify signature error")
 	}
-	if ShouldRectifyThinkingSignatureError("deepseek-v4-pro") {
-		t.Error("passback-required must NOT rectify (would break protocol contract)")
+	if ShouldRectifyThinkingSignatureError("vendor-reasoning-v1") {
+		t.Error("unknown models must NOT rectify (conservative default)")
 	}
 	if ShouldRectifyThinkingSignatureError("gpt-5.1") {
 		t.Error("unknown should NOT rectify (conservative default)")
@@ -110,7 +97,7 @@ func TestShouldRectifyThinkingSignatureError(t *testing.T) {
 func TestShouldApplyRetryFiltersMirrorsPreFilter(t *testing.T) {
 	models := []string{
 		"claude-sonnet-4-5", "claude-opus-4-5-20251101", "haiku-4-5",
-		"deepseek-v4-pro", "kimi-coding", "glm-5.1",
+		"vendor-reasoning-v1",
 		"qwen3-235b-a22b-thinking-2507", "qwen3-32b",
 		"gpt-5.1", "gemini-3-pro-preview", "yi-large", "",
 	}
@@ -119,6 +106,22 @@ func TestShouldApplyRetryFiltersMirrorsPreFilter(t *testing.T) {
 			if got := ShouldApplyRetryFilters(m); got != ShouldPreFilterThinkingBlocks(m) {
 				t.Errorf("ShouldApplyRetryFilters(%q)=%v but ShouldPreFilterThinkingBlocks=%v — must match",
 					m, got, ShouldPreFilterThinkingBlocks(m))
+			}
+		})
+	}
+}
+
+func TestRemovedProviderModelsHaveNoDedicatedThinkingProtocol(t *testing.T) {
+	for _, model := range []string{
+		"kimi-k3",
+		"k3",
+		"moonshot-v1-32k",
+		"glm-5.2",
+		"deepseek-v4-pro",
+	} {
+		t.Run(model, func(t *testing.T) {
+			if got := ResolveThinkingProtocol(model); got != ThinkingProtocolUnknown {
+				t.Fatalf("ResolveThinkingProtocol(%q) = %v, want unknown", model, got)
 			}
 		})
 	}

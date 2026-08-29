@@ -433,7 +433,7 @@ func chatMessageToAnthropicBlocks(message ChatMessage) []AnthropicContentBlock {
 	}
 
 	text := chatMessageContentText(message.Content)
-	// DeepSeek reasoning-only fallback: when there is no text and no tool calls,
+	// Reasoning-only fallback: when there is no text and no tool calls,
 	// surface the reasoning content as visible text so the turn isn't empty.
 	if text == "" && strings.TrimSpace(reasoning) != "" && len(message.ToolCalls) == 0 {
 		text = reasoning
@@ -547,7 +547,7 @@ type ChatCompletionsToAnthropicStreamState struct {
 	pendingToolCallID map[int]string
 	pendingToolArgs   map[int]string
 
-	// Reasoning (DeepSeek-style): reasoning_content streamed before content.
+	// Reasoning: reasoning_content may be streamed before content.
 	// No separate reasoning block index — it uses ContentBlockIndex like the
 	// Responses bridge's ReasoningIndex, but since blocks are sequential we
 	// reuse the single ContentBlockIndex counter.

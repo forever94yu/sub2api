@@ -566,8 +566,7 @@ func StripEmptyTextBlocks(body []byte) []byte {
 //
 // mappedModel 是「实际发给上游的模型 ID」(after account model mapping)，用于按
 // 协议族分流。仅 anthropic-strict 走原过滤逻辑；passback-required 与 unknown
-// 一律保留全部 thinking block，避免误伤第三方兼容上游
-// (DeepSeek `/anthropic`、Kimi `/coding`、GLM、Moonshot 等)，详见
+// 一律保留全部 thinking block，避免误伤第三方兼容上游，详见
 // .pensieve/short-term/knowledge/thinking-block-filter-third-party-upstream-inversion/。
 //
 // 策略 (anthropic-strict only)：
@@ -597,7 +596,7 @@ func FilterThinkingBlocks(body []byte, mappedModel string) []byte {
 //   - Ensure no message ends up with empty content.
 //
 // mappedModel 用于按协议族分流：仅 anthropic-strict 执行上述变形；
-// passback-required (DeepSeek/Kimi/GLM 等) 与 unknown 一律返回原 body，
+// passback-required 与 unknown 一律返回原 body，
 // 因为这类上游的契约就是「thinking block 原样回传」（或我们不了解），
 // retry 任何变形都不会修好 400，反而破坏契约。详见 thinking_protocol.go。
 func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
@@ -1251,36 +1250,21 @@ func NormalizeClaudeOutputEffort(raw string) *string {
 }
 
 // DefaultEffortForThinkingEnabled 给"开启了 thinking 但协议层没有 effort 档位概念"
-// 的国产模型族返回一个默认 effort 字符串（"high"），用于 usage_log.reasoning_effort
+// 的兼容模型族返回一个默认 effort 字符串（"high"），用于 usage_log.reasoning_effort
 // 字段，避免该字段长期为 NULL 导致用量分析无法区分 thinking 开/关。
 //
 // 适用范围（按 ResolveThinkingProtocol 的 PassbackRequired 集合做白名单过滤）：
-//   - Kimi (kimi-* / moonshot-*)
-//   - GLM (glm-*)
 //   - MiniMax (minimax-m*)
 //   - Qwen thinking 变体 (qwen[1-4]?-*-thinking)
-//
-// **排除 DeepSeek**：DeepSeek 原生支持 reasoning_effort: high/max，客户端可显式指定，
-// 网关不应注入默认值覆盖客户端意图（即便客户端没发，DeepSeek 上游自己会用 high default
-// ——但那是上游行为，不是我们的语义注入）。
 //
 // 适用场景由调用方守卫：仅当 (1) ResolveThinkingProtocol == PassbackRequired
 // (2) 已确认 thinking 启用（Anthropic: parsed.ThinkingEnabled；OpenAI: 见
 // OpenAIBodyHasThinkingEnabled) (3) 已有 effort 解析返回 nil 三者同时成立时调用。
 //
-// 返回值固定指向 "high"。理由：Kimi/GLM/MiniMax 启用 thinking 都是"深度推理模式"，
-// 等同 Claude/OpenAI 的 high 档位语义；用 high 比 medium/normal 更贴近实际行为，
-// 也与 DeepSeek thinking-enabled 的默认 effort 一致。
-//
-// 未来兼容性：如果这些厂商后续加入真实 effort 档位（如 Kimi 跟进 DeepSeek 的
-// reasoning_effort: high/max），客户端开始显式发 effort 值时，调用方的守卫条件 (3)
-// 会因 extractor 返回非 nil 而不触发本函数，自动让出。
+// 返回值固定指向 "high"，与这些模型启用深度推理时的语义一致。客户端显式提供
+// effort 时，调用方的守卫条件会让出，不触发本函数。
 func DefaultEffortForThinkingEnabled(mappedModel string) *string {
 	if ResolveThinkingProtocol(mappedModel) != ThinkingProtocolPassbackRequired {
-		return nil
-	}
-	// DeepSeek 在 PassbackRequired 集合里但有原生 effort 支持，排除。
-	if strings.HasPrefix(strings.ToLower(mappedModel), "deepseek-") {
 		return nil
 	}
 	effort := "high"
@@ -1289,7 +1273,7 @@ func DefaultEffortForThinkingEnabled(mappedModel string) *string {
 
 // OpenAIBodyHasThinkingEnabled 检测 OpenAI 协议的请求体里是否启用了 thinking。
 //
-// 国产 OpenAI-兼容上游（GLM via thinkingFormat=zai / Kimi 等）在请求体里用
+// 部分 OpenAI 兼容上游在请求体里用
 // `thinking: {type: "enabled"}` 或 `thinking: {type: "adaptive"}` 表达启用。
 // 仅 "enabled" / "adaptive" 视为开启；"disabled" 或缺省 → 视为关闭。
 //
@@ -1301,7 +1285,7 @@ func OpenAIBodyHasThinkingEnabled(body []byte) bool {
 }
 
 // ApplyThinkingEnabledFallback 补丁已解析出的 effort，仅在 effort 为 nil 且
-// 检测到 body 里 thinking 启用 + mappedModel 属于国产 passback-required 上游时，
+// 检测到 body 里 thinking 启用 + mappedModel 属于 passback-required 上游时，
 // 返回 DefaultEffortForThinkingEnabled 的默认值（"high"）。不覆盖已解析出的值。
 //
 // 适用于 OpenAI 网关的多条路径调用方（避免重复的 if-nil 表达式）。
@@ -1313,53 +1297,6 @@ func ApplyThinkingEnabledFallback(effort *string, body []byte, mappedModel strin
 		return nil
 	}
 	return DefaultEffortForThinkingEnabled(mappedModel)
-}
-
-// NormalizeGLMOpenAIReasoningEffort rewrites OpenAI Chat Completions
-// reasoning_effort values to the GLM native scale used by z.ai: high/max.
-// It only applies to glm-* mapped models and leaves all other providers untouched.
-func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool) {
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(mappedModel)), "glm-") {
-		return body, false
-	}
-
-	path := "reasoning.effort"
-	raw := strings.TrimSpace(gjson.GetBytes(body, path).String())
-	if raw == "" {
-		path = "reasoning_effort"
-		raw = strings.TrimSpace(gjson.GetBytes(body, path).String())
-	}
-	if raw == "" {
-		return body, false
-	}
-
-	mapped := normalizeGLMOpenAIReasoningEffort(raw)
-	if mapped == "" || mapped == raw {
-		return body, false
-	}
-
-	modified, err := sjson.SetBytes(body, path, mapped)
-	if err != nil {
-		return body, false
-	}
-	return modified, true
-}
-
-func normalizeGLMOpenAIReasoningEffort(raw string) string {
-	value := strings.ToLower(strings.TrimSpace(raw))
-	if value == "" {
-		return ""
-	}
-	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
-
-	switch value {
-	case "low", "medium", "high":
-		return "high"
-	case "xhigh", "extrahigh", "max", "ultracode":
-		return "max"
-	default:
-		return ""
-	}
 }
 
 // =========================
@@ -1457,9 +1394,7 @@ func RectifyThinkingBudget(body []byte) ([]byte, bool) {
 //     and may be rejected/ignored. Pi-ai and other Anthropic-SDK clients default to
 //     "enabled" (Anthropic-original) and never auto-rewrite for non-Anthropic models.
 //
-// Non-MiniMax models (Kimi/GLM/DeepSeek) currently accept "enabled" as-is, so this
-// function is intentionally a no-op for them. New Chinese LLM quirks should be
-// added here as separate case branches.
+// Non-MiniMax models are intentionally left unchanged.
 //
 // Returns (modified body, true) if a rewrite was applied, or (original body, false)
 // if no rewrite was needed. Caller should be on the Anthropic forward path AFTER

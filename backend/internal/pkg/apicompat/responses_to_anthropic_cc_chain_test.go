@@ -36,7 +36,7 @@ func ccChainToAnthropic(t *testing.T, ccReq *ChatCompletionsRequest) []Anthropic
 func TestCCChain_OrphanToolResultFromTrimmedHistory(t *testing.T) {
 	orphanID := "call_00_TgfbRvKlnD7oK6Dg00sL1661"
 	msgs := ccChainToAnthropic(t, &ChatCompletionsRequest{
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Messages: []ChatMessage{
 			{Role: "user", Content: json.RawMessage(`"search the web for X"`)},
 			// The assistant tool_calls message that announced orphanID was trimmed.
@@ -56,7 +56,7 @@ func TestCCChain_OrphanToolResultFromTrimmedHistory(t *testing.T) {
 // "tool_use without tool_result" check; the repair drops it.
 func TestCCChain_ParallelToolOneResultMissing(t *testing.T) {
 	msgs := ccChainToAnthropic(t, &ChatCompletionsRequest{
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Messages: []ChatMessage{
 			{Role: "user", Content: json.RawMessage(`"search A and B"`)},
 			{Role: "assistant", Content: json.RawMessage(`"searching both"`), ToolCalls: []ChatToolCall{
@@ -77,7 +77,7 @@ func TestCCChain_ParallelToolOneResultMissing(t *testing.T) {
 // assistant turn) converts and pairs correctly through the full chain.
 func TestCCChain_WellFormedMultiRound(t *testing.T) {
 	msgs := ccChainToAnthropic(t, &ChatCompletionsRequest{
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Messages: []ChatMessage{
 			{Role: "user", Content: json.RawMessage(`"do A then B"`)},
 			{Role: "assistant", Content: json.RawMessage(`"running A"`), ToolCalls: []ChatToolCall{

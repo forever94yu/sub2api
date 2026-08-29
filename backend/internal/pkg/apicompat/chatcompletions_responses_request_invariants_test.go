@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// assertChatInvariants enforces the DeepSeek / OpenAI Chat Completions message
+// assertChatInvariants enforces the OpenAI Chat Completions message
 // invariants that, when violated, surface as upstream 400s. Used to validate the
 // request-direction converter against golden codex request shapes.
 func assertChatInvariants(t *testing.T, messages []ChatMessage) {

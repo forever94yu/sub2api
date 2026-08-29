@@ -64,7 +64,7 @@ func TestDecideResponsesProbeSupport(t *testing.T) {
 		{"405 method not allowed", 405, fnCall, false},
 		// 2xx: tool capability is judged by presence of a function_call output item.
 		{"200 with function_call", 200, fnCall, true},
-		// Volcengine Ark coding/v3 × kimi-k2.6: reasoning only, no function_call.
+		// Volcengine Ark coding/v3 × vendor-k2.6: reasoning only, no function_call.
 		{"200 reasoning only", 200, reasoningOnly, false},
 		{"200 invalid json", 200, []byte("not-json"), false},
 		{"200 no output field", 200, []byte(`{"status":"completed"}`), false},

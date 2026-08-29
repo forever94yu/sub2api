@@ -29,7 +29,7 @@ func TestExtractCCReasoningEffortFromBody(t *testing.T) {
 		require.Equal(t, "xhigh", *got)
 	})
 
-	t.Run("DeepSeek max", func(t *testing.T) {
+	t.Run("Generic max", func(t *testing.T) {
 		got := extractCCReasoningEffortFromBody([]byte(`{"reasoning_effort":"Max"}`))
 		require.NotNil(t, got)
 		require.Equal(t, "xhigh", *got)
@@ -75,7 +75,7 @@ func TestHandleCCBufferedFromAnthropic_PreservesMessageStartCacheUsageAndReasoni
 	require.Equal(t, "high", *result.ReasoningEffort)
 }
 
-// Kimi 等 Anthropic 兼容上游返回 SSE 紧凑格式（冒号后无空格），CC 桥此前按
+// compact provider 等 Anthropic 兼容上游返回 SSE 紧凑格式（冒号后无空格），CC 桥此前按
 // "event: " / "data: " 严格匹配会丢弃全部事件，最终报 "Upstream stream ended
 // without a response"（#4653 同根因；#4657 只修了 /v1/responses 桥）。
 func TestHandleCCBufferedFromAnthropic_CompactSSEFormat(t *testing.T) {

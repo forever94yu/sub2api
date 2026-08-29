@@ -116,7 +116,7 @@ func TestCompositeRouteResolverPrefixEmptyUpstreamPassesThroughRequestedModel(t 
 			{
 				ID:             1,
 				GroupID:        7,
-				PublicModel:    "deepseek-v4",
+				PublicModel:    "vendor-v4",
 				MatchType:      CompositeRouteMatchPrefix,
 				TargetPlatform: PlatformOpenAI,
 				UpstreamModel:  "", // 留空 = 透传
@@ -127,7 +127,7 @@ func TestCompositeRouteResolverPrefixEmptyUpstreamPassesThroughRequestedModel(t 
 		},
 	})
 
-	for _, model := range []string{"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4"} {
+	for _, model := range []string{"vendor-v4-flash", "vendor-v4-pro", "vendor-v4"} {
 		decision, err := resolver.Resolve(context.Background(), 7, model, CompositeRouteEndpointChatCompletions)
 		require.NoError(t, err)
 		require.True(t, decision.Matched, "model %q should match prefix route", model)
@@ -145,10 +145,10 @@ func TestCompositeRouteResolverPrefixExplicitUpstreamStillFixed(t *testing.T) {
 			{
 				ID:             1,
 				GroupID:        7,
-				PublicModel:    "deepseek-v4",
+				PublicModel:    "vendor-v4",
 				MatchType:      CompositeRouteMatchPrefix,
 				TargetPlatform: PlatformOpenAI,
-				UpstreamModel:  "deepseek-chat",
+				UpstreamModel:  "vendor-chat",
 				Endpoint:       CompositeRouteEndpointAny,
 				Priority:       100,
 				Enabled:        true,
@@ -156,11 +156,11 @@ func TestCompositeRouteResolverPrefixExplicitUpstreamStillFixed(t *testing.T) {
 		},
 	})
 
-	for _, model := range []string{"deepseek-v4-flash", "deepseek-v4-pro"} {
+	for _, model := range []string{"vendor-v4-flash", "vendor-v4-pro"} {
 		decision, err := resolver.Resolve(context.Background(), 7, model, CompositeRouteEndpointChatCompletions)
 		require.NoError(t, err)
 		require.True(t, decision.Matched)
-		require.Equal(t, "deepseek-chat", decision.UpstreamModel)
+		require.Equal(t, "vendor-chat", decision.UpstreamModel)
 	}
 }
 

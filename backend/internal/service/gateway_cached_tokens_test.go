@@ -26,8 +26,8 @@ func TestReconcileCachedTokens_AlreadyHasCacheRead(t *testing.T) {
 	assert.Equal(t, float64(100), usage["cache_read_input_tokens"])
 }
 
-func TestReconcileCachedTokens_KimiStyle(t *testing.T) {
-	// Kimi 风格：cache_read_input_tokens=0，cached_tokens>0
+func TestReconcileCachedTokens_AlternativeStyle(t *testing.T) {
+	// compact provider 风格：cache_read_input_tokens=0，cached_tokens>0
 	usage := map[string]any{
 		"input_tokens":                float64(23),
 		"cache_creation_input_tokens": float64(0),
@@ -71,14 +71,14 @@ func TestReconcileCachedTokens_MissingCacheReadField(t *testing.T) {
 // ---------- 流式 message_start 事件 reconcile 测试 ----------
 
 func TestStreamingReconcile_MessageStart(t *testing.T) {
-	// 模拟 Kimi 返回的 message_start SSE 事件
+	// 模拟 compact provider 返回的 message_start SSE 事件
 	eventJSON := `{
 		"type": "message_start",
 		"message": {
 			"id": "msg_123",
 			"type": "message",
 			"role": "assistant",
-			"model": "kimi",
+			"model": "vendor",
 			"usage": {
 				"input_tokens": 23,
 				"cache_creation_input_tokens": 0,
@@ -146,7 +146,7 @@ func TestStreamingReconcile_MessageStart_NativeClaude(t *testing.T) {
 // ---------- 流式 message_delta 事件 reconcile 测试 ----------
 
 func TestStreamingReconcile_MessageDelta(t *testing.T) {
-	// 模拟 Kimi 返回的 message_delta SSE 事件
+	// 模拟 compact provider 返回的 message_delta SSE 事件
 	eventJSON := `{
 		"type": "message_delta",
 		"usage": {
@@ -190,14 +190,14 @@ func TestStreamingReconcile_MessageDelta_NativeClaude(t *testing.T) {
 
 // ---------- 非流式响应 reconcile 测试 ----------
 
-func TestNonStreamingReconcile_KimiResponse(t *testing.T) {
-	// 模拟 Kimi 非流式响应
+func TestNonStreamingReconcile_AlternativeResponse(t *testing.T) {
+	// 模拟 compact provider 非流式响应
 	body := []byte(`{
 		"id": "msg_123",
 		"type": "message",
 		"role": "assistant",
 		"content": [{"type": "text", "text": "hello"}],
-		"model": "kimi",
+		"model": "vendor",
 		"usage": {
 			"input_tokens": 23,
 			"output_tokens": 7,

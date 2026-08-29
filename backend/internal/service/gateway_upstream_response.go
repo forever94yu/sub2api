@@ -103,7 +103,7 @@ func sseEventIndex(event map[string]any) (int, bool) {
 // shouldRectifySignatureError 统一判断是否应触发签名整流（strip thinking blocks 并重试）。
 // 根据账号类型检查对应的开关和匹配模式。
 //
-// mappedModel 用于按 thinking 协议族分流：passback-required (DeepSeek/Kimi/GLM 等) 上游
+// mappedModel 用于按 thinking 协议族分流：passback-required 上游
 // 的 400 不是签名缺失问题，retry 任何 thinking 变形都会破坏「原样回传」契约——直接透传
 // 错误给客户端。详见 thinking_protocol.go。
 func (s *GatewayService) shouldRectifySignatureError(ctx context.Context, account *Account, respBody []byte, mappedModel string) bool {
@@ -928,7 +928,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			}
 		}
 
-		// 兼容 Kimi cached_tokens → cache_read_input_tokens
+		// 兼容 OpenAI 风格的 cached_tokens → cache_read_input_tokens
 		if eventType == "message_start" {
 			if msg, ok := event["message"].(map[string]any); ok {
 				if u, ok := msg["usage"].(map[string]any); ok {
@@ -1408,7 +1408,7 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		response.Usage.CacheCreation1hTokens = int(cc1h.Int())
 	}
 
-	// 兼容 Kimi cached_tokens → cache_read_input_tokens
+	// 兼容 OpenAI 风格的 cached_tokens → cache_read_input_tokens
 	if response.Usage.CacheReadInputTokens == 0 {
 		cachedTokens := gjson.GetBytes(body, "usage.cached_tokens").Int()
 		if cachedTokens > 0 {
@@ -1468,7 +1468,7 @@ func (s *GatewayService) replaceModelInResponseBody(body []byte, fromModel, toMo
 	return body
 }
 
-// reconcileCachedTokens 兼容 Kimi 等上游：
+// reconcileCachedTokens 兼容使用 OpenAI 风格用量字段的上游：
 // 将 OpenAI 风格的 cached_tokens 映射到 Claude 标准的 cache_read_input_tokens
 func reconcileCachedTokens(usage map[string]any) bool {
 	if usage == nil {

@@ -56,7 +56,7 @@
       </div>
       </HelpTooltip>
     </div>
-    <!-- 配额模式监控：主模型行内联展示最新用量/余额快照（管理端不受用户端开关限制） -->
+    <!-- 配额模式监控：主模型行内联展示最新用量快照（管理端不受用户端开关限制） -->
     <MonitorQuotaView :snapshot="row.latest_quota" />
   </div>
 </template>

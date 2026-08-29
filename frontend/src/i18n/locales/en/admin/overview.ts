@@ -948,9 +948,6 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
-        kimi: 'Kimi',
-        zhipu: 'Zhipu GLM',
-        deepseek: 'DeepSeek',
         composite: 'Composite',
       },
       deleteConfirm:
@@ -1073,7 +1070,7 @@ export default {
         endpoint: 'Endpoint',
         targetPlatform: 'Target Platform',
         upstreamModel: 'Upstream Model',
-        upstreamModelHint: 'Leave empty to pass the original requested model through: under prefix match each matched model forwards verbatim (e.g. deepseek-v4-flash and deepseek-v4-pro each forwarded as-is); set a value to forward every matched request to that fixed model.',
+        upstreamModelHint: 'Leave empty to pass the original requested model through: under prefix match each matched model forwards verbatim (e.g. vendor-v4-flash and vendor-v4-pro each forwarded as-is); set a value to forward every matched request to that fixed model.',
         notes: 'Notes',
         enabled: 'Enabled',
         preview: 'Preview',

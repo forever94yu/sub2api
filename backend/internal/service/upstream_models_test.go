@@ -58,9 +58,9 @@ func TestBuildOpenAIModelsURL(t *testing.T) {
 		want string
 	}{
 		{
-			name: "zhipu v4 coding base url",
-			base: "https://open.bigmodel.cn/api/coding/paas/v4",
-			want: "https://open.bigmodel.cn/api/coding/paas/v4/models",
+			name: "vendor v4 coding base url",
+			base: "https://api.vendor.example/api/coding/paas/v4",
+			want: "https://api.vendor.example/api/coding/paas/v4/models",
 		},
 		{
 			name: "openai v1 base url",
@@ -79,8 +79,8 @@ func TestBuildOpenAIModelsURL(t *testing.T) {
 		},
 		{
 			name: "trailing slash on v4",
-			base: "https://open.bigmodel.cn/api/coding/paas/v4/",
-			want: "https://open.bigmodel.cn/api/coding/paas/v4/models",
+			base: "https://api.vendor.example/api/coding/paas/v4/",
+			want: "https://api.vendor.example/api/coding/paas/v4/models",
 		},
 		{
 			name: "v2 base url",

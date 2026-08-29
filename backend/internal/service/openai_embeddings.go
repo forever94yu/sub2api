@@ -46,13 +46,11 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		zap.String("upstream_model", upstreamModel),
 	)
 
-	apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
+	apiKey := strings.TrimSpace(account.GetOpenAIApiKey())
 	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
-	// 协议感知：Anthropic 协议账号的凭证 base_url 指向 /anthropic 端点，
-	// embeddings 需使用 OpenAI 格式 base。
-	baseURL := account.GetOpenAIFormatBaseURL()
+	baseURL := account.GetOpenAIBaseURL()
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}

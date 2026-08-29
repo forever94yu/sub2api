@@ -82,7 +82,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	input.Body = StripEmptyTextBlocks(input.Body)
 	// Pre-filter: strip web-search history blocks the upstream cannot accept
 	// (emulation-synthesized ones always; genuine ones additionally for
-	// passback-required third-party upstreams such as GLM/Kimi/DeepSeek,
+	// passback-required third-party upstreams,
 	// which reject server_tool_use with 400). input.RequestModel 已是映射后的模型 ID。
 	input.Body = FilterWebSearchHistoryBlocks(input.Body, input.RequestModel)
 	if input.Parsed != nil {
@@ -626,8 +626,7 @@ func extractAnthropicSSEDataLine(line string) (string, bool) {
 	return line[start:], true
 }
 
-// parseSSEUsagePassthrough 从 Anthropic SSE data 行提取 usage（包级函数：
-// Anthropic 平台 passthrough 与国产供应商原生 Anthropic 直通共用）。
+// parseSSEUsagePassthrough 从 Anthropic SSE data 行提取 usage。
 func parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
 	if usage == nil || data == "" || data == "[DONE]" {
 		return
@@ -734,8 +733,7 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 }
 
 // invalidNonStreamingJSONFailoverError 把"上游 2xx 返回非 JSON body"归一为
-// failover 错误（包级函数：Anthropic 平台 passthrough 与国产供应商原生
-// Anthropic 直通共用）。
+// failover 错误。
 func invalidNonStreamingJSONFailoverError(
 	ctx context.Context,
 	rateLimitService *RateLimitService,

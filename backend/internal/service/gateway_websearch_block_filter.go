@@ -32,7 +32,7 @@ var (
 //     No upstream ever issued them, so clients replaying the conversation
 //     (e.g. Claude Code) poison every follow-up request. They are stripped
 //     for all upstreams.
-//  2. For passback-required upstreams (DeepSeek/Kimi/GLM …, see
+//  2. For passback-required upstreams (see
 //     ResolveThinkingProtocol) all server_tool_use / web_search_tool_result
 //     blocks are stripped: these upstreams only accept
 //     text/thinking/image/tool_use/tool_result and reject anything else with

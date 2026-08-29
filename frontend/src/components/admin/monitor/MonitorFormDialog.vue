@@ -51,7 +51,7 @@
         </div>
       </div>
 
-      <!-- 配额模式数据源：关联账号（复用账号侧用量/余额服务） -->
+      <!-- 配额模式数据源：关联账号（复用账号侧用量服务） -->
       <div v-if="usesQuotaMode">
         <label class="input-label">
           {{ t('admin.channelMonitor.form.linkedAccount') }} <span class="text-red-500">*</span>
@@ -266,9 +266,6 @@ import {
   PROVIDER_GEMINI,
   PROVIDER_GROK,
   PROVIDER_ANTIGRAVITY,
-  PROVIDER_KIMI,
-  PROVIDER_ZHIPU,
-  PROVIDER_DEEPSEEK,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   CHECK_MODE_PROBE,
@@ -276,9 +273,6 @@ import {
   CHECK_MODE_QUOTA_PROBE,
   DEFAULT_GROK_ENDPOINT,
   DEFAULT_GROK_MODEL,
-  DEFAULT_KIMI_ENDPOINT,
-  DEFAULT_ZHIPU_ENDPOINT,
-  DEFAULT_DEEPSEEK_ENDPOINT,
   DEFAULT_INTERVAL_SECONDS,
 } from '@/constants/channelMonitor'
 
@@ -470,17 +464,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
   { value: PROVIDER_ANTIGRAVITY, label: t('monitorCommon.providers.antigravity') },
-  { value: PROVIDER_KIMI, label: t('monitorCommon.providers.kimi') },
-  { value: PROVIDER_ZHIPU, label: t('monitorCommon.providers.zhipu') },
-  { value: PROVIDER_DEEPSEEK, label: t('monitorCommon.providers.deepseek') },
 ])
-
-// 国产 provider 预填的官方 endpoint（仅探活侧；配额模式 endpoint 可留空）。
-const PROVIDER_DEFAULT_ENDPOINTS: Partial<Record<Provider, string>> = {
-  [PROVIDER_KIMI]: DEFAULT_KIMI_ENDPOINT,
-  [PROVIDER_ZHIPU]: DEFAULT_ZHIPU_ENDPOINT,
-  [PROVIDER_DEEPSEEK]: DEFAULT_DEEPSEEK_ENDPOINT,
-}
 
 interface CheckModeOption {
   value: CheckMode
@@ -664,8 +648,6 @@ function selectProvider(provider: Provider) {
     previousProvider === PROVIDER_GROK && form.endpoint === DEFAULT_GROK_ENDPOINT
   const clearGrokModel =
     previousProvider === PROVIDER_GROK && form.primary_model === DEFAULT_GROK_MODEL
-  const clearPrevDefaultEndpoint =
-    !!PROVIDER_DEFAULT_ENDPOINTS[previousProvider] && form.endpoint === PROVIDER_DEFAULT_ENDPOINTS[previousProvider]
   form.provider = provider
   // 关联账号与平台绑定：切换 provider 时显式清空（这是唯一主动清空的入口）。
   form.account_id = null
@@ -688,10 +670,8 @@ function selectProvider(provider: Provider) {
     if (!form.primary_model.trim()) form.primary_model = DEFAULT_GROK_MODEL
     return
   }
-  if (clearGrokEndpoint || clearPrevDefaultEndpoint) form.endpoint = ''
+  if (clearGrokEndpoint) form.endpoint = ''
   if (clearGrokModel) form.primary_model = ''
-  const defaultEndpoint = PROVIDER_DEFAULT_ENDPOINTS[provider]
-  if (defaultEndpoint && !form.endpoint.trim()) form.endpoint = defaultEndpoint
 }
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.

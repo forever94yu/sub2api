@@ -1,13 +1,13 @@
 <template>
   <div v-if="snapshot" class="space-y-1" data-testid="monitor-quota-view">
-    <!-- 套餐等级徽章（如智谱 plan level / Claude 订阅档） -->
+    <!-- 套餐等级徽章 -->
     <div v-if="snapshot.plan_level" class="flex flex-wrap items-center gap-1.5">
       <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-600 dark:text-gray-300">
         {{ snapshot.plan_level }}
       </span>
     </div>
 
-    <!-- 用量窗口条形图（样式/阈值对齐账号页 CNProviderQuotaCell） -->
+    <!-- 用量窗口条形图 -->
     <div v-if="snapshot.success && tierRows.length" class="space-y-1">
       <div v-for="row in tierRows" :key="row.key" class="flex items-center gap-1.5 text-[10px]">
         <span class="w-14 shrink-0 truncate text-gray-500 dark:text-gray-400" :title="row.title">
@@ -53,7 +53,7 @@ import type { MonitorQuotaSnapshot, MonitorQuotaTier } from '@/api/admin/channel
 
 /**
  * 配额快照渲染（管理端监控列表/运行结果 + 用户端监控卡片共用）。
- * 展示形态对齐账号管理侧的用量视图（CNProviderQuotaCell：同阈值配色、
+ * 展示形态沿用账号管理侧的用量视图（同阈值配色、
  * 同倒计时格式）；tier 的 Window/Label 是后端约定的机器 token，
  * 已知 token 走 i18n，未知 token 原样展示（前向兼容）。
  */

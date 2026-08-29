@@ -26,7 +26,7 @@ func TestBuildOpenAIEmbeddingsURL(t *testing.T) {
 		{"bare domain", "https://api.openai.com", "https://api.openai.com/v1/embeddings"},
 		{"bare /v1", "https://api.openai.com/v1", "https://api.openai.com/v1/embeddings"},
 		{"already embeddings", "https://api.openai.com/v1/embeddings", "https://api.openai.com/v1/embeddings"},
-		{"third-party versioned path", "https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4/embeddings"},
+		{"third-party versioned path", "https://api.vendor.example/api/paas/v4", "https://api.vendor.example/api/paas/v4/embeddings"},
 	}
 
 	for _, tt := range tests {

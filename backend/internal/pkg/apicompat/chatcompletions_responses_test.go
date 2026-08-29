@@ -442,12 +442,12 @@ func TestChatCompletionsToResponses_EmptyContentNeverNull(t *testing.T) {
 	}
 }
 
-func TestChatCompletionsResponseToResponses_DeepSeekReasoningOnlyFallsBackToMessageText(t *testing.T) {
+func TestChatCompletionsResponseToResponses_ReasoningOnlyFallsBackToMessageText(t *testing.T) {
 	content := json.RawMessage(`""`)
 	resp := &ChatCompletionsResponse{
-		ID:     "chatcmpl_deepseek_reasoning_only",
+		ID:     "chatcmpl_vendor_reasoning_only",
 		Object: "chat.completion",
-		Model:  "deepseek-reasoner",
+		Model:  "vendor-reasoner",
 		Choices: []ChatChoice{{
 			Index: 0,
 			Message: ChatMessage{
@@ -459,7 +459,7 @@ func TestChatCompletionsResponseToResponses_DeepSeekReasoningOnlyFallsBackToMess
 		}},
 	}
 
-	out := ChatCompletionsResponseToResponses(resp, "deepseek-reasoner", nil, false, nil)
+	out := ChatCompletionsResponseToResponses(resp, "vendor-reasoner", nil, false, nil)
 
 	require.Len(t, out.Output, 2)
 	require.Equal(t, "reasoning", out.Output[0].Type)
@@ -468,12 +468,12 @@ func TestChatCompletionsResponseToResponses_DeepSeekReasoningOnlyFallsBackToMess
 	assert.Equal(t, "reasoning-only answer", out.Output[1].Content[0].Text)
 }
 
-func TestChatCompletionsResponseToResponses_DeepSeekReasoningToolCallDoesNotFallbackToMessageText(t *testing.T) {
+func TestChatCompletionsResponseToResponses_ReasoningToolCallDoesNotFallbackToMessageText(t *testing.T) {
 	content := json.RawMessage(`""`)
 	resp := &ChatCompletionsResponse{
-		ID:     "chatcmpl_deepseek_reasoning_tool",
+		ID:     "chatcmpl_vendor_reasoning_tool",
 		Object: "chat.completion",
-		Model:  "deepseek-reasoner",
+		Model:  "vendor-reasoner",
 		Choices: []ChatChoice{{
 			Index: 0,
 			Message: ChatMessage{
@@ -493,7 +493,7 @@ func TestChatCompletionsResponseToResponses_DeepSeekReasoningToolCallDoesNotFall
 		}},
 	}
 
-	out := ChatCompletionsResponseToResponses(resp, "deepseek-reasoner", nil, false, nil)
+	out := ChatCompletionsResponseToResponses(resp, "vendor-reasoner", nil, false, nil)
 
 	require.Len(t, out.Output, 2)
 	require.Equal(t, "reasoning", out.Output[0].Type)

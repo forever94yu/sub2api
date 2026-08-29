@@ -9,7 +9,7 @@ import (
 // 渠道监控参数校验与归一化辅助函数。
 // 校验失败一律返回 channel_monitor_const.go 中预定义的 Err* 错误，错误信息不含具体 IP/hostname，避免泄露内网拓扑。
 
-// monitorProviders 渠道监控支持的全部 provider（与迁移 226 的 CHECK 约束一致）。
+// monitorProviders lists every supported channel-monitor provider.
 // 不再以 adapter 表为唯一来源：antigravity 没有探活 adapter，但支持配额模式。
 //
 //nolint:gochecknoglobals // 静态查表，初始化后不变。
@@ -19,9 +19,6 @@ var monitorProviders = map[string]struct{}{
 	MonitorProviderGemini:      {},
 	MonitorProviderGrok:        {},
 	MonitorProviderAntigravity: {},
-	MonitorProviderKimi:        {},
-	MonitorProviderZhipu:       {},
-	MonitorProviderDeepseek:    {},
 }
 
 // probeCapableProviders 支持探活（probe / quota_probe）的 provider。
@@ -33,9 +30,6 @@ var probeCapableProviders = map[string]struct{}{
 	MonitorProviderAnthropic: {},
 	MonitorProviderGemini:    {},
 	MonitorProviderGrok:      {},
-	MonitorProviderKimi:      {},
-	MonitorProviderZhipu:     {},
-	MonitorProviderDeepseek:  {},
 }
 
 // validateProvider 校验 provider 字符串。
@@ -208,28 +202,12 @@ func normalizeMonitorPrimaryModel(provider, checkMode, model string) string {
 	return model
 }
 
-// monitorAccountQuotaCapability 校验关联账号能否充当配额数据源，与
-// fetchUncached 的路由一一对应（coding→CN 额度端点 / payg→CN 余额端点 /
-// 其余→AccountUsageService）。在创建/更新期拦截注定运行期永久 error 的组合：
-//   - kimi/zhipu/deepseek coding：GetCodingPlanProvider 须识别为 kimi/zhipu
-//     （deepseek coding、自定义域名 kimi coding 无法路由额度端点）
-//   - kimi/zhipu/deepseek payg：仅 kimi/deepseek 有公开余额端点（zhipu payg 无）
+// monitorAccountQuotaCapability 校验关联账号能否充当配额数据源。在创建/更新期拦截注定运行期永久 error 的组合：
 //   - anthropic：OAuth / Setup Token（API-Key 型无 usage 通道，永久 error）
 //   - openai：OAuth（API-Key 型无 usage 通道）
 //   - gemini/grok/antigravity：本地统计/值通道降级，不会永久 error，放行
 func monitorAccountQuotaCapability(account *Account) error {
 	switch account.Platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek:
-		if account.IsCodingPlan() {
-			if p := account.GetCodingPlanProvider(); p != PlatformKimi && p != PlatformZhipu {
-				return ErrChannelMonitorAccountNotSupportable
-			}
-			return nil
-		}
-		if account.Platform == PlatformZhipu {
-			return ErrChannelMonitorAccountNotSupportable
-		}
-		return nil
 	case PlatformAnthropic:
 		if account.Type == AccountTypeOAuth || account.Type == AccountTypeSetupToken {
 			return nil

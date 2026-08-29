@@ -24,14 +24,14 @@ func strPtr(s string) *string { return &s }
 // → ResponsesEventToAnthropicEvents, and asserts every content_block_delta
 // targets a block that was previously content_block_start'ed.
 func TestStreamingParallelToolUseNoGhostDelta(t *testing.T) {
-	ccState := NewChatCompletionsToResponsesStreamState("glm-5.2")
+	ccState := NewChatCompletionsToResponsesStreamState("vendor-reasoning-v1")
 	anthropicState := NewResponsesEventToAnthropicState()
-	anthropicState.Model = "glm-5.2"
+	anthropicState.Model = "vendor-reasoning-v1"
 
 	// Chunk 1: first tool_call arrives with id + name + packed arguments.
 	chatChunk1 := &ChatCompletionsChunk{
 		ID:    "chatcmpl-1",
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChunkChoice{{
 			Index: 0,
 			Delta: ChatDelta{
@@ -51,7 +51,7 @@ func TestStreamingParallelToolUseNoGhostDelta(t *testing.T) {
 	// Chunk 2: second tool_call arrives with id + name + packed arguments.
 	chatChunk2 := &ChatCompletionsChunk{
 		ID:    "chatcmpl-1",
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChunkChoice{{
 			Index: 0,
 			Delta: ChatDelta{
@@ -71,7 +71,7 @@ func TestStreamingParallelToolUseNoGhostDelta(t *testing.T) {
 	// Chunk 3: finish.
 	chatChunk3 := &ChatCompletionsChunk{
 		ID:    "chatcmpl-1",
-		Model: "glm-5.2",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChunkChoice{{
 			Index:        0,
 			Delta:        ChatDelta{},
@@ -156,7 +156,7 @@ func TestStreamingParallelToolUseSecondToolPackedArgsDone(t *testing.T) {
 	// response.created
 	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:     "response.created",
-		Response: &ResponsesResponse{ID: "resp_par", Model: "glm-5.2"},
+		Response: &ResponsesResponse{ID: "resp_par", Model: "vendor-reasoning-v1"},
 	}, state)
 
 	// Tool 1: output_item.added (index 0)
@@ -236,7 +236,7 @@ func TestStreamingThreeParallelToolsAllPackedDone(t *testing.T) {
 
 	ResponsesEventToAnthropicEvents(&ResponsesStreamEvent{
 		Type:     "response.created",
-		Response: &ResponsesResponse{ID: "resp_3par", Model: "glm-5.2"},
+		Response: &ResponsesResponse{ID: "resp_3par", Model: "vendor-reasoning-v1"},
 	}, state)
 
 	// Open three tool blocks at indices 0, 1, 2.

@@ -24,7 +24,7 @@ type ResponsesToChatOptions struct {
 	// ReasoningContentByID looks up the cached reasoning text for a reasoning
 	// item id. Codex histories may carry reasoning items with no plaintext
 	// summary (empty summary + opaque encrypted_content, e.g. after remote
-	// compaction); DeepSeek's thinking mode rejects such histories with 400
+	// compaction); some thinking protocols reject such histories with 400
 	// "The `reasoning_content` in the thinking mode must be passed back to the
 	// API". The gateway caches the reasoning text it streamed under the item
 	// id, so the lookup restores the reasoning_content the client can no
@@ -218,7 +218,7 @@ func HasToolSearchTool(tools []ResponsesTool) bool {
 //	          assistant message that produced a tool call, merging parallel tool
 //	          calls into one assistant message, and skipping item types that have
 //	          no Chat equivalent
-//	normalize — normalizeChatMessages enforces the invariants DeepSeek requires
+//	normalize — normalizeChatMessages enforces strict Chat Completions invariants
 //
 // The build + normalize split keeps every protocol rule in one place rather than
 // scattered across per-item cases, and makes unknown future codex item types
@@ -265,16 +265,16 @@ func responsesInputToChatMessagesWithOptions(instructions string, inputRaw json.
 // corresponding Chat messages.
 func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessage, opts *ResponsesToChatOptions) ([]ChatMessage, toolOutputMediaByCallID, error) {
 	// pendingReasoning holds the reasoning text from a reasoning item until the
-	// assistant message it belongs to is emitted. DeepSeek's thinking mode
+	// assistant message it belongs to is emitted. Some thinking protocols
 	// requires the reasoning_content that produced a tool call to be passed back
 	// on that assistant message; dropping it yields a 400. It only survives
 	// across an assistant message (so a following tool call in the same turn
 	// still receives it); any other role ends the thinking span.
 	var pendingReasoning string
 	// lastTurnReasoning is the most recent reasoning text of the current turn,
-	// surviving tool outputs. DeepSeek emits reasoning only once per turn, so
+	// surviving tool outputs. Some upstreams emit reasoning only once per turn, so
 	// chained tool calls (reasoning → call A → output A → call B) leave call B's
-	// assistant message without reasoning_content and DeepSeek 400s the history;
+	// assistant message without reasoning_content can make the upstream reject the history;
 	// replaying the turn's reasoning on B's message satisfies the contract. Only
 	// a user-side item ends the turn and clears it.
 	var lastTurnReasoning string
@@ -431,7 +431,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		// Responses item types with no Chat equivalent (web_search_call,
 		// local_shell_call, file_search_call, ...). Converting them via the
 		// generic path would insert a spurious message between an assistant
-		// tool_calls message and its tool reply, which DeepSeek rejects
+		// tool_calls message and its tool reply, which strict upstreams reject
 		// ("insufficient tool messages following tool_calls message"). Skip them.
 		if itemType != "" && itemType != "message" {
 			pendingReasoning = ""
@@ -449,7 +449,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 			return nil, nil, err
 		}
 		msg := ChatMessage{Role: role, Content: chatContent}
-		// DeepSeek thinking mode requires the reasoning_content from a prior
+		// Some thinking modes require the reasoning_content from a prior
 		// reasoning-only / plain-text assistant turn to be passed back on its
 		// assistant message; dropping it yields 400 "The `reasoning_content` in
 		// the thinking mode must be passed back to the API" on the next turn.
@@ -623,7 +623,7 @@ func appendAssistantToolCall(messages []ChatMessage, toolCall ChatToolCall, pend
 }
 
 // normalizeChatMessages is the single place that enforces the tool-call
-// invariant the DeepSeek / OpenAI Chat Completions schema requires: an assistant
+// invariant required by the OpenAI Chat Completions schema: an assistant
 // message with tool_calls must be immediately followed by one tool message per
 // tool_call_id, in order, with nothing in between.
 //
@@ -1335,7 +1335,7 @@ type ChatCompletionsToResponsesStreamState struct {
 	// the order of items in the final response.output array.
 	nextOutputIndex int
 
-	// Reasoning item lifecycle. DeepSeek-style upstreams stream all
+	// Reasoning item lifecycle. Some upstreams stream all
 	// reasoning_content before any content, so reasoning is modeled as its own
 	// "reasoning" output item that must be opened (output_item.added) before any
 	// reasoning delta and closed before the message/tool items open.
@@ -1480,7 +1480,7 @@ func ChatCompletionsChunkToResponsesEvents(
 				copyCall.Type = "function"
 				// Arguments are accumulated by the shared block below so the
 				// emitted delta and the stored value stay in sync. Some upstreams
-				// (e.g. GLM/Zhipu) pack id+name+arguments into the first tool_call
+				// pack id+name+arguments into the first tool_call
 				// chunk; without this reset the first chunk's arguments would be
 				// counted twice (once from this copy, once from the += below),
 				// producing a doubled, invalid JSON like {"a":1}{"a":1}.

@@ -10,11 +10,11 @@ import (
 // Encrypted-only reasoning items (empty summary + opaque encrypted_content,
 // e.g. after codex remote compaction) carry no plaintext the bridge can map to
 // reasoning_content. The gateway-side cache keyed by reasoning item id restores
-// it; without the restore, DeepSeek thinking mode rejects the history with 400
+// it; without the restore, reasoning mode rejects the history with 400
 // "The `reasoning_content` in the thinking mode must be passed back to the API".
 func TestResponsesToChat_ReasoningCacheLookup_RestoresEncryptedOnlyItem(t *testing.T) {
 	req := &ResponsesRequest{
-		Model: "deepseek-reasoner",
+		Model: "vendor-reasoner",
 		Input: json.RawMessage(`[
 			{"type":"reasoning","id":"item_enc1","summary":[],"encrypted_content":"opaque"},
 			{"type":"function_call","call_id":"call_1","name":"get_value","arguments":"{}"},
@@ -44,7 +44,7 @@ func TestResponsesToChat_ReasoningCacheLookup_RestoresEncryptedOnlyItem(t *testi
 // A cache miss keeps the original behavior: no reasoning_content, no error.
 func TestResponsesToChat_ReasoningCacheLookup_MissKeepsOriginalBehavior(t *testing.T) {
 	req := &ResponsesRequest{
-		Model: "deepseek-reasoner",
+		Model: "vendor-reasoner",
 		Input: json.RawMessage(`[
 			{"type":"reasoning","id":"item_unknown","summary":[],"encrypted_content":"opaque"},
 			{"type":"function_call","call_id":"call_1","name":"get_value","arguments":"{}"},
@@ -69,7 +69,7 @@ func TestResponsesToChat_ReasoningCacheLookup_MissKeepsOriginalBehavior(t *testi
 // Plaintext summary wins and the cache lookup is not consulted.
 func TestResponsesToChat_ReasoningCacheLookup_PlaintextPreferred(t *testing.T) {
 	req := &ResponsesRequest{
-		Model: "deepseek-reasoner",
+		Model: "vendor-reasoner",
 		Input: json.RawMessage(`[
 			{"type":"reasoning","id":"item_plain","summary":[{"type":"summary_text","text":"plain thinking"}]},
 			{"type":"function_call","call_id":"call_1","name":"get_value","arguments":"{}"},
@@ -91,14 +91,14 @@ func TestResponsesToChat_ReasoningCacheLookup_PlaintextPreferred(t *testing.T) {
 	require.False(t, lookupCalled, "plaintext summary present → cache lookup must not run")
 }
 
-// DeepSeek emits reasoning only once per turn; chained tool calls
+// Generic emits reasoning only once per turn; chained tool calls
 // (reasoning → call A → output A → call B) have no reasoning item before call
 // B. The turn's reasoning must be replayed on B's assistant message, otherwise
-// DeepSeek thinking mode 400s the history ("reasoning_content ... must be
+// reasoning mode 400s the history ("reasoning_content ... must be
 // passed back"). Reproduced from a real codex 0.147.0 resume history.
 func TestResponsesToChat_ChainedToolCallsReplayTurnReasoning(t *testing.T) {
 	req := &ResponsesRequest{
-		Model: "deepseek-reasoner",
+		Model: "vendor-reasoner",
 		Input: json.RawMessage(`[
 			{"type":"reasoning","id":"item_r1","summary":[{"type":"summary_text","text":"turn thinking"}]},
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\n\n"}]},
@@ -129,7 +129,7 @@ func TestResponsesToChat_ChainedToolCallsReplayTurnReasoning(t *testing.T) {
 	require.Equal(t, "second turn", byCallID["call_c"].ReasoningContent,
 		"user 消息后开启新轮次，不得沿用上一轮 reasoning")
 
-	// 每一条 assistant 消息都必须带 reasoning_content（DeepSeek 契约）。
+	// 每一条 assistant 消息都必须带 reasoning_content（Generic 契约）。
 	for i, m := range out.Messages {
 		if m.Role == "assistant" {
 			require.NotEmpty(t, m.ReasoningContent, "messages[%d] 缺 reasoning_content", i)

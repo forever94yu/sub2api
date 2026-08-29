@@ -28,7 +28,7 @@ import (
 //
 // 以及 messages / chat_completions 两条 Responses 主路径中逐字相同的错误处理块。
 // 所有 helper 都是对既有内联代码的等价提取，不改变任何行为；各路径的差异
-// （GLM effort 归一化、fast policy、Grok 分支、ClientDisconnect 语义等）仍留在
+// （fast policy、Grok 分支、ClientDisconnect 语义等）仍留在
 // 调用方，属于有意保留的行为差异，不在此强行统一。
 
 // newUpstreamSSEScanner 构造读取上游 SSE 流的行扫描器，按配置放大单行上限。
@@ -150,7 +150,7 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 // resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点
 // （回退路径仅面向 APIKey 账号，凭证恒为 openai api_key）。
 func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey string, targetURL string, err error) {
-	apiKey = strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
+	apiKey = strings.TrimSpace(account.GetOpenAIApiKey())
 	if apiKey == "" {
 		return "", "", fmt.Errorf("account %d missing api_key", account.ID)
 	}

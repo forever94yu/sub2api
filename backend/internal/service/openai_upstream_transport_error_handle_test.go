@@ -199,7 +199,7 @@ func TestForwardAsRawChatCompletions_TransportErrorFailsOver(t *testing.T) {
 		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://opencode.ai/zen/v1"},
 	}
 	c, rec := newOpenAITransportErrTestContext()
-	body := []byte(`{"model":"deepseek-v4-flash-free","messages":[{"role":"user","content":"hello"}]}`)
+	body := []byte(`{"model":"vendor-reasoning-v1","messages":[{"role":"user","content":"hello"}]}`)
 
 	_, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
 

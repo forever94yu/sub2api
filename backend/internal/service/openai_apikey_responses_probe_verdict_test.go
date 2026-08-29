@@ -101,7 +101,7 @@ func TestProbeOpenAIAPIKeyResponsesSupport_ConclusiveResponsesStillPersist(t *te
 			want:   true,
 		},
 		{
-			// 火山方舟 coding/v3 × kimi-k2.6：端点在、跑完了、就是不产出 function_call。
+			// 火山方舟 coding/v3 × vendor-k2.6：端点在、跑完了、就是不产出 function_call。
 			// 这正是探测要抓的目标，必须继续落标为不支持。
 			name:   "completed_reasoning_only",
 			status: http.StatusOK,

@@ -16,7 +16,7 @@ import (
 // appends finalize events, returning the full Anthropic event sequence.
 func collectAnthropicStreamEvents(t *testing.T, chunks []string) []AnthropicStreamEvent {
 	t.Helper()
-	state := NewChatCompletionsToAnthropicStreamState("deepseek-v4-pro")
+	state := NewChatCompletionsToAnthropicStreamState("vendor-reasoning-v1")
 	var events []AnthropicStreamEvent
 	for _, payload := range chunks {
 		var chunk ChatCompletionsChunk
@@ -222,7 +222,7 @@ func TestAnthropicToChatCompletionsRequest_TemperaturePreservedForNonReasoningMo
 	temp := 0.7
 	topP := 0.9
 	req := &AnthropicRequest{
-		Model:       "deepseek-v4-pro",
+		Model:       "vendor-reasoning-v1",
 		MaxTokens:   100,
 		Temperature: &temp,
 		TopP:        &topP,
@@ -299,7 +299,7 @@ func TestAnthropicToChatCompletionsRequest_ServerToolDropped(t *testing.T) {
 func TestChatCompletionsResponseToAnthropic_TextOnly(t *testing.T) {
 	resp := &ChatCompletionsResponse{
 		ID:    "chatcmpl-1",
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Index:        0,
 			Message:      ChatMessage{Role: "assistant", Content: json.RawMessage(`"hello world"`)},
@@ -322,7 +322,7 @@ func TestChatCompletionsResponseToAnthropic_TextOnly(t *testing.T) {
 func TestChatCompletionsResponseToAnthropic_ToolUse(t *testing.T) {
 	resp := &ChatCompletionsResponse{
 		ID:    "chatcmpl-2",
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Index: 0,
 			Message: ChatMessage{
@@ -352,7 +352,7 @@ func TestChatCompletionsResponseToAnthropic_ToolUse(t *testing.T) {
 func TestChatCompletionsResponseToAnthropic_ReasoningOnlyFallback(t *testing.T) {
 	resp := &ChatCompletionsResponse{
 		ID:    "chatcmpl-3",
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Index: 0,
 			Message: ChatMessage{
@@ -375,7 +375,7 @@ func TestChatCompletionsResponseToAnthropic_ReasoningOnlyFallback(t *testing.T) 
 func TestChatCompletionsResponseToAnthropic_FinishReasonLength(t *testing.T) {
 	resp := &ChatCompletionsResponse{
 		ID:    "chatcmpl-4",
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Index:        0,
 			Message:      ChatMessage{Role: "assistant", Content: json.RawMessage(`"truncated"`)},
@@ -390,7 +390,7 @@ func TestChatCompletionsResponseToAnthropic_FinishReasonLength(t *testing.T) {
 func TestChatCompletionsResponseToAnthropic_EmptyChoices(t *testing.T) {
 	resp := &ChatCompletionsResponse{
 		ID:      "chatcmpl-5",
-		Model:   "deepseek-v4-pro",
+		Model:   "vendor-reasoning-v1",
 		Choices: []ChatChoice{},
 	}
 
@@ -404,7 +404,7 @@ func TestChatCompletionsResponseToAnthropic_EmptyChoices(t *testing.T) {
 func TestChatCompletionsResponseToAnthropic_CacheTokens(t *testing.T) {
 	resp := &ChatCompletionsResponse{
 		ID:    "chatcmpl-6",
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Index:        0,
 			Message:      ChatMessage{Role: "assistant", Content: json.RawMessage(`"hi"`)},
@@ -644,7 +644,7 @@ func TestFinalizeChatCompletionsAnthropicStream_EmitsMessageStartIfMissing(t *te
 func TestDirectBridge_NonStreamingMatchesDoubleConversion(t *testing.T) {
 	resp := &ChatCompletionsResponse{
 		ID:    "chatcmpl-eq",
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Index: 0,
 			Message: ChatMessage{
@@ -701,7 +701,7 @@ func TestDirectBridge_NonStreamingMatchesDoubleConversion(t *testing.T) {
 func TestDirectBridge_RequestMatchesDoubleConversion(t *testing.T) {
 	temp := 0.5
 	req := &AnthropicRequest{
-		Model:       "deepseek-v4-pro",
+		Model:       "vendor-reasoning-v1",
 		MaxTokens:   500,
 		Temperature: &temp,
 		System:      json.RawMessage(`"be helpful"`),
@@ -920,7 +920,7 @@ func TestAnthropicToChatCompletionsRequest_UserArrayContentFoldsToString(t *test
 	// like the double-conversion path — strict chat upstreams reject array
 	// content when no image forces the parts form.
 	req := &AnthropicRequest{
-		Model:     "deepseek-v4-pro",
+		Model:     "vendor-reasoning-v1",
 		MaxTokens: 100,
 		Messages: []AnthropicMessage{
 			{Role: "user", Content: json.RawMessage(`[{"type":"text","text":"first"},{"type":"text","text":"second"}]`)},
@@ -937,7 +937,7 @@ func TestDirectBridge_RequestMatchesDoubleConversion_ArrayUserContent(t *testing
 	// Array-form user content: text-only folds to a string, image-bearing stays
 	// in parts form — both must match the double-conversion chain exactly.
 	req := &AnthropicRequest{
-		Model:     "deepseek-v4-pro",
+		Model:     "vendor-reasoning-v1",
 		MaxTokens: 100,
 		Messages: []AnthropicMessage{
 			{Role: "user", Content: json.RawMessage(`[{"type":"text","text":"first"},{"type":"text","text":"second"}]`)},
@@ -969,7 +969,7 @@ func TestDirectBridge_NonStreamingMatchesDoubleConversion_CacheWriteTokens(t *te
 	// additive — when both are set, the double-conversion path prefers write.
 	resp := &ChatCompletionsResponse{
 		ID:    "chatcmpl-cache",
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Message:      ChatMessage{Role: "assistant", Content: json.RawMessage(`"hi"`)},
 			FinishReason: "stop",
@@ -1000,7 +1000,7 @@ func TestDirectBridge_NonStreamingMatchesDoubleConversion_CacheWriteTokens(t *te
 
 func TestChatCompletionsResponseToAnthropic_GeneratesIDWhenMissing(t *testing.T) {
 	resp := &ChatCompletionsResponse{
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Message:      ChatMessage{Role: "assistant", Content: json.RawMessage(`"hi"`)},
 			FinishReason: "stop",
@@ -1015,7 +1015,7 @@ func TestAnthropicToChatCompletionsRequest_ToolChoiceUndeclaredDropped(t *testin
 	// A named tool_choice pointing at a dropped/unknown tool is not forwarded —
 	// chat upstreams 400 on tool_choice referencing an undeclared tool.
 	base := AnthropicRequest{
-		Model:     "deepseek-v4-pro",
+		Model:     "vendor-reasoning-v1",
 		MaxTokens: 100,
 		Tools: []AnthropicTool{
 			{Name: "get_weather", InputSchema: json.RawMessage(`{"type":"object"}`)},
@@ -1054,7 +1054,7 @@ func TestAnthropicToChatCompletionsRequest_ToolChoiceUndeclaredDropped(t *testin
 func TestDirectBridge_NonStreamingMatchesDoubleConversion_EmptyChoices(t *testing.T) {
 	// An upstream 200 with empty choices must still report a valid stop_reason,
 	// matching the double-conversion chain ("end_turn").
-	resp := &ChatCompletionsResponse{ID: "chatcmpl-empty", Model: "deepseek-v4-pro"}
+	resp := &ChatCompletionsResponse{ID: "chatcmpl-empty", Model: "vendor-reasoning-v1"}
 
 	direct := ChatCompletionsResponseToAnthropic(resp, "claude-sonnet-4-20250514")
 
@@ -1070,7 +1070,7 @@ func TestChatCompletionsResponseToAnthropic_ContentFilterWithToolUse(t *testing.
 	// blocks, like the double-conversion path.
 	resp := &ChatCompletionsResponse{
 		ID:    "chatcmpl-cf",
-		Model: "deepseek-v4-pro",
+		Model: "vendor-reasoning-v1",
 		Choices: []ChatChoice{{
 			Message: ChatMessage{
 				Role:    "assistant",

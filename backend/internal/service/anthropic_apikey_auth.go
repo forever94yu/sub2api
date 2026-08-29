@@ -14,14 +14,12 @@ const (
 
 // GetAnthropicAPIKeyAuthScheme returns the upstream authentication scheme for
 // Anthropic API-key accounts. Missing or invalid values keep the historical
-// x-api-key behavior. CN providers using their native Anthropic endpoints
-// (api_protocol=anthropic) share the same override knob — Kimi/DeepSeek default
-// to x-api-key, Zhipu can opt into Authorization: Bearer.
+// x-api-key behavior.
 func (a *Account) GetAnthropicAPIKeyAuthScheme() string {
 	if a == nil || a.Type != AccountTypeAPIKey {
 		return AnthropicAPIKeyAuthSchemeXAPIKey
 	}
-	if a.Platform != PlatformAnthropic && !a.IsCNProvider() {
+	if a.Platform != PlatformAnthropic {
 		return AnthropicAPIKeyAuthSchemeXAPIKey
 	}
 
