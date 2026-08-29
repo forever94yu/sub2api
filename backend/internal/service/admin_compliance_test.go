@@ -63,6 +63,8 @@ func TestAdminComplianceStatusRequiresAckWhenMissing(t *testing.T) {
 	require.Equal(t, AdminComplianceVersion, status.Version)
 	require.Equal(t, AdminComplianceAckPhraseZH, status.AckPhraseZH)
 	require.Equal(t, AdminComplianceDocumentPathZH, status.DocumentPathZH)
+	require.Equal(t, "https://github.com/forever94yu/sub2api/blob/main/docs/legal/admin-compliance.zh.md", status.DocumentURLZH)
+	require.Equal(t, "https://github.com/forever94yu/sub2api/blob/main/docs/legal/admin-compliance.en.md", status.DocumentURLEN)
 }
 
 func TestAcceptAdminComplianceRejectsWrongPhrase(t *testing.T) {

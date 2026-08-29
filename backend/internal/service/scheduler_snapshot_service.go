@@ -837,7 +837,7 @@ func schedulerBucketsForGroup(groupID int64) []SchedulerBucket {
 }
 
 func schedulerCanonicalBuckets(groupID int64) []SchedulerBucket {
-	buckets := make([]SchedulerBucket, 0, 12)
+	buckets := make([]SchedulerBucket, 0, schedulerCanonicalBucketCapacity())
 	for _, platform := range schedulerSnapshotPlatforms() {
 		buckets = append(buckets,
 			SchedulerBucket{GroupID: groupID, Platform: platform, Mode: SchedulerModeSingle},
@@ -850,12 +850,23 @@ func schedulerCanonicalBuckets(groupID int64) []SchedulerBucket {
 	return buckets
 }
 
+func schedulerCanonicalBucketCapacity() int {
+	count := 0
+	for _, platform := range schedulerSnapshotPlatforms() {
+		count += 2
+		if platform == PlatformAnthropic || platform == PlatformGemini {
+			count++
+		}
+	}
+	return count
+}
+
 func (s *SchedulerSnapshotService) rebuildByGroupIDs(ctx context.Context, groupIDs []int64, reason string, seen map[batchSeenKey]struct{}) error {
 	groupIDs = s.normalizeGroupIDs(groupIDs)
 	if len(groupIDs) == 0 {
 		return nil
 	}
-	buckets := make([]SchedulerBucket, 0, len(groupIDs)*18)
+	buckets := make([]SchedulerBucket, 0, len(groupIDs)*schedulerCanonicalBucketCapacity())
 	for _, platform := range schedulerSnapshotPlatforms() {
 		buckets = append(buckets, s.bucketsForPlatform(platform, groupIDs, seen)...)
 	}

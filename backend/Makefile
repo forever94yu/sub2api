@@ -21,7 +21,7 @@ test-integration:
 	go test -tags=integration ./...
 
 test-e2e:
-	./scripts/e2e-test.sh
+	go test -tags=e2e -v -timeout=300s ./internal/integration/...
 
 test-e2e-local:
-	go test -tags=e2e -v -timeout=300s ./internal/integration/...
+	$(MAKE) test-e2e

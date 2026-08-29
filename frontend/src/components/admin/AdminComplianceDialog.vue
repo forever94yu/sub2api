@@ -104,13 +104,14 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { useAdminComplianceStore, useAppStore, useAuthStore } from '@/stores'
+import { useAdminComplianceStore, useAdminSettingsStore, useAppStore, useAuthStore } from '@/stores'
 import { getLocale } from '@/i18n'
 import zhDocument from '../../../../docs/legal/admin-compliance.zh.md?raw'
 import enDocument from '../../../../docs/legal/admin-compliance.en.md?raw'
 
 const { t } = useI18n()
 const complianceStore = useAdminComplianceStore()
+const adminSettingsStore = useAdminSettingsStore()
 const authStore = useAuthStore()
 const appStore = useAppStore()
 const typedPhrase = ref('')
@@ -167,6 +168,10 @@ async function submit(): Promise<void> {
   try {
     const status = await complianceStore.accept(typedPhrase.value.trim())
     if (!status.required) {
+      await Promise.all([
+        adminSettingsStore.fetch(true),
+        appStore.fetchVersion(true),
+      ])
       appStore.showSuccess(t('adminCompliance.accepted'))
       typedPhrase.value = ''
       attemptedSubmit.value = false
