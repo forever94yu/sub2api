@@ -43,6 +43,8 @@ func (User) Fields() []ent.Field {
 		field.String("password_hash").
 			MaxLen(255).
 			NotEmpty(),
+		field.Int64("token_version").
+			Default(0),
 		field.String("role").
 			MaxLen(20).
 			Default(domain.RoleUser),

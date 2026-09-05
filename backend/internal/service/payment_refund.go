@@ -214,6 +214,9 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 	if !psSliceContains(ok, o.Status) {
 		return nil, nil, infraerrors.BadRequest("INVALID_STATUS", "order status does not allow refund")
 	}
+	if o.Status == OrderStatusRefundPending {
+		return nil, nil, infraerrors.BadRequest("INVALID_STATUS", "pending refund must be queried before submitting another refund")
+	}
 	// Check provider instance allows admin refund
 	inst, instErr := s.getRefundOrderProviderInstance(ctx, o)
 	if instErr != nil {
@@ -320,20 +323,14 @@ func (s *PaymentService) ExecuteRefund(ctx context.Context, p *RefundPlan) (*Ref
 	}
 	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
 		if !s.hasAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED") {
-			_, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, -p.SubDaysToDeduct)
+			adjustment, err := s.subscriptionSvc.deductRefundSubscription(ctx, p.SubscriptionID, p.SubDaysToDeduct, nil)
 			if err != nil {
-				if errors.Is(err, ErrAdjustWouldExpire) {
-					// Deduction would expire the subscription — revoke it entirely
-					slog.Info("subscription deduction would expire, revoking", "orderID", p.OrderID, "subID", p.SubscriptionID, "days", p.SubDaysToDeduct)
-					if revokeErr := s.subscriptionSvc.RevokeSubscription(ctx, p.SubscriptionID); revokeErr != nil {
-						s.restoreStatus(ctx, p)
-						return nil, fmt.Errorf("revoke subscription: %w", revokeErr)
-					}
-				} else {
-					// Other errors (DB failure, not found) — abort refund
-					s.restoreStatus(ctx, p)
-					return nil, fmt.Errorf("deduct subscription days: %w", err)
-				}
+				s.restoreStatus(ctx, p)
+				return nil, fmt.Errorf("deduct subscription days: %w", err)
+			}
+			p.subscriptionAdjustment = adjustment
+			if adjustment == nil {
+				p.SubDaysToDeduct = 0
 			}
 		} else {
 			slog.Warn("skipping subscription deduction on retry (previous rollback failed)", "orderID", p.OrderID)
@@ -436,30 +433,63 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 		return nil, infraerrors.BadRequest("REFUND_QUERY_UNSUPPORTED", "this payment provider does not support refund status query; please verify manually")
 	}
 
-	pendingDetail := s.latestRefundPendingDetail(ctx, oid)
+	pendingDetail, err := s.latestRefundPendingDetail(ctx, oid)
+	if err != nil {
+		return nil, err
+	}
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
 	resp, err := queryProvider.QueryRefund(ctx, payment.RefundQueryRequest{
 		TradeNo:  o.PaymentTradeNo,
 		OrderID:  o.OutTradeNo,
 		RefundID: pendingDetail.RefundID,
-		Amount:   formatGatewayRefundAmount(o.RefundAmount, o),
+		Amount:   formatGatewayRefundAmount(calculateGatewayRefundAmount(o.Amount, o.PayAmount, o.RefundAmount, PaymentOrderCurrency(o)), o),
 	})
 	finishProviderCall()
 	if err != nil {
 		return nil, fmt.Errorf("query refund: %w", err)
 	}
-	if err := validateRefundProviderResponse(resp); err != nil {
-		return s.finalizeRefundFailed(ctx, o, err)
-	}
-
 	plan := s.refundFinalizePlan(o)
-	if !pendingDetail.DeductionRollbackOK {
+	if pendingDetail.DeductBalance != nil {
+		plan.DeductBalance = *pendingDetail.DeductBalance
+		plan.DeductionType = pendingDetail.DeductionType
+		plan.BalanceToDeduct = 0
+		if pendingDetail.BalanceRolledBack != nil {
+			plan.BalanceToDeduct = *pendingDetail.BalanceRolledBack
+		}
+		if pendingDetail.SubDaysRolledBack != nil {
+			plan.SubDaysToDeduct = *pendingDetail.SubDaysRolledBack
+		}
+		plan.SubscriptionID = pendingDetail.SubscriptionID
+		plan.subscriptionAdjustment = pendingDetail.SubscriptionAdjustment
+		plan.deductionAlreadyApplied = !pendingDetail.DeductionRollbackOK
+		if plan.deductionAlreadyApplied {
+			plan.BalanceToDeduct = pendingDetail.BalanceDeducted
+			plan.SubDaysToDeduct = pendingDetail.SubDaysDeducted
+		}
+		if !plan.DeductBalance {
+			plan.DeductionType = payment.DeductionTypeNone
+			plan.BalanceToDeduct = 0
+			plan.SubDaysToDeduct = 0
+		}
+	} else if !pendingDetail.DeductionRollbackOK {
 		plan.BalanceToDeduct = 0
 		plan.SubDaysToDeduct = 0
+	} else if o.OrderType == payment.OrderTypeBalance && pendingDetail.BalanceRolledBack != nil {
+		// Older audits recorded actual compensation but did not record the
+		// checkbox. An explicit zero is different from an absent legacy field.
+		plan.BalanceToDeduct = *pendingDetail.BalanceRolledBack
 	} else if o.OrderType == payment.OrderTypeSubscription {
-		if early := s.prepDeduct(ctx, o, plan, true); early != nil {
-			return early, nil
+		if pendingDetail.SubDaysRolledBack == nil || *pendingDetail.SubDaysRolledBack > 0 {
+			if early := s.prepDeduct(ctx, o, plan, true); early != nil {
+				return early, nil
+			}
+			if pendingDetail.SubDaysRolledBack != nil {
+				plan.SubDaysToDeduct = *pendingDetail.SubDaysRolledBack
+			}
 		}
+	}
+	if err := validateRefundProviderResponse(resp); err != nil {
+		return s.finalizeRefundFailed(ctx, o, plan, err)
 	}
 	switch strings.TrimSpace(resp.Status) {
 	case payment.ProviderStatusSuccess, payment.ProviderStatusRefunded:
@@ -468,7 +498,7 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 		s.writeAuditLog(ctx, oid, "REFUND_QUERY_PENDING", "admin", map[string]any{"refundID": resp.RefundID})
 		return &RefundResult{Success: false, Warning: "gateway refund is still pending confirmation"}, nil
 	default:
-		return s.finalizeRefundFailed(ctx, o, fmt.Errorf("payment refund returned unknown status: %s", strings.TrimSpace(resp.Status)))
+		return s.finalizeRefundFailed(ctx, o, plan, fmt.Errorf("payment refund returned unknown status: %s", strings.TrimSpace(resp.Status)))
 	}
 }
 
@@ -533,6 +563,9 @@ func (s *PaymentService) refundFinalizePlan(o *dbent.PaymentOrder) *RefundPlan {
 }
 
 func (s *PaymentService) applyRefundFinalDeduction(ctx context.Context, p *RefundPlan) error {
+	if p.deductionAlreadyApplied {
+		return nil
+	}
 	if p.DeductionType == payment.DeductionTypeBalance && p.BalanceToDeduct > 0 {
 		deducted, err := s.deductAvailableBalance(ctx, p.Order.UserID, p.BalanceToDeduct)
 		if err != nil {
@@ -541,43 +574,86 @@ func (s *PaymentService) applyRefundFinalDeduction(ctx context.Context, p *Refun
 		p.BalanceToDeduct = deducted
 	}
 	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
-		if _, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, -p.SubDaysToDeduct); err != nil {
-			if errors.Is(err, ErrAdjustWouldExpire) {
-				if revokeErr := s.subscriptionSvc.RevokeSubscription(ctx, p.SubscriptionID); revokeErr != nil {
-					return fmt.Errorf("revoke subscription: %w", revokeErr)
-				}
-			} else {
-				return fmt.Errorf("deduct subscription days: %w", err)
-			}
+		adjustment, err := s.subscriptionSvc.deductRefundSubscription(ctx, p.SubscriptionID, p.SubDaysToDeduct, p.subscriptionAdjustment)
+		if err != nil {
+			return fmt.Errorf("deduct subscription days: %w", err)
+		}
+		p.subscriptionAdjustment = adjustment
+		if adjustment == nil {
+			p.SubDaysToDeduct = 0
 		}
 	}
 	return nil
 }
 
-func (s *PaymentService) finalizeRefundFailed(ctx context.Context, o *dbent.PaymentOrder, gErr error) (*RefundResult, error) {
+func (s *PaymentService) finalizeRefundFailed(ctx context.Context, o *dbent.PaymentOrder, p *RefundPlan, gErr error) (*RefundResult, error) {
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin failed refund finalization: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	claimed, err := tx.PaymentOrder.Update().Where(paymentorder.IDEQ(o.ID), paymentorder.StatusEQ(OrderStatusRefundPending)).
+		SetStatus(OrderStatusRefunding).Save(txCtx)
+	if err != nil {
+		return nil, fmt.Errorf("claim failed pending refund: %w", err)
+	}
+	if claimed == 0 {
+		return nil, infraerrors.Conflict("CONFLICT", "order status changed")
+	}
+	if p.deductionAlreadyApplied {
+		if err := s.rollbackRefundDeduction(txCtx, p); err != nil {
+			return nil, fmt.Errorf("restore failed pending refund deduction: %w", err)
+		}
+	}
 	now := time.Now()
-	_, _ = s.entClient.PaymentOrder.UpdateOneID(o.ID).SetStatus(OrderStatusRefundFailed).SetFailedAt(now).SetFailedReason(psErrMsg(gErr)).Save(ctx)
-	s.writeAuditLog(ctx, o.ID, "REFUND_FAILED", "admin", map[string]any{"detail": psErrMsg(gErr)})
+	if _, err := tx.PaymentOrder.UpdateOneID(o.ID).SetStatus(OrderStatusRefundFailed).SetFailedAt(now).SetFailedReason(psErrMsg(gErr)).Save(txCtx); err != nil {
+		return nil, fmt.Errorf("mark failed pending refund: %w", err)
+	}
+	detail, err := json.Marshal(map[string]any{"detail": psErrMsg(gErr), "deductionRollbackOK": true})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.PaymentAuditLog.Create().SetOrderID(strconv.FormatInt(o.ID, 10)).
+		SetAction("REFUND_FAILED").SetOperator("admin").SetDetail(string(detail)).Save(txCtx); err != nil {
+		return nil, fmt.Errorf("write failed refund audit: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit failed refund finalization: %w", err)
+	}
 	return &RefundResult{Success: false, Warning: "gateway refund failed: " + psErrMsg(gErr)}, nil
 }
 
 type refundPendingAuditDetail struct {
-	RefundID            string `json:"refundID"`
-	DeductionRollbackOK bool   `json:"deductionRollbackOK"`
+	RefundID               string                        `json:"refundID"`
+	DeductionRollbackOK    bool                          `json:"deductionRollbackOK"`
+	DeductBalance          *bool                         `json:"deductBalance,omitempty"`
+	DeductionType          string                        `json:"deductionType,omitempty"`
+	BalanceDeducted        float64                       `json:"balanceDeducted"`
+	BalanceRolledBack      *float64                      `json:"balanceRolledBack,omitempty"`
+	SubDaysDeducted        int                           `json:"subDaysDeducted"`
+	SubDaysRolledBack      *int                          `json:"subDaysRolledBack,omitempty"`
+	SubscriptionID         int64                         `json:"subscriptionID,omitempty"`
+	SubscriptionAdjustment *subscriptionRefundAdjustment `json:"subscriptionAdjustment,omitempty"`
 }
 
-func (s *PaymentService) latestRefundPendingDetail(ctx context.Context, oid int64) refundPendingAuditDetail {
+func (s *PaymentService) latestRefundPendingDetail(ctx context.Context, oid int64) (refundPendingAuditDetail, error) {
 	logEntry, err := s.entClient.PaymentAuditLog.Query().
 		Where(paymentauditlog.OrderIDEQ(strconv.FormatInt(oid, 10)), paymentauditlog.ActionEQ("REFUND_PENDING")).
-		Order(paymentauditlog.ByCreatedAt(sql.OrderDesc())).
+		Order(paymentauditlog.ByCreatedAt(sql.OrderDesc()), paymentauditlog.ByID(sql.OrderDesc())).
 		First(ctx)
-	if err != nil || logEntry == nil {
-		return refundPendingAuditDetail{DeductionRollbackOK: true}
+	if dbent.IsNotFound(err) {
+		return refundPendingAuditDetail{DeductionRollbackOK: true}, nil
+	}
+	if err != nil {
+		return refundPendingAuditDetail{}, fmt.Errorf("read pending refund audit: %w", err)
 	}
 	detail := refundPendingAuditDetail{DeductionRollbackOK: true}
-	_ = json.Unmarshal([]byte(logEntry.Detail), &detail)
+	if err := json.Unmarshal([]byte(logEntry.Detail), &detail); err != nil {
+		return refundPendingAuditDetail{}, fmt.Errorf("decode pending refund audit: %w", err)
+	}
 	detail.RefundID = strings.TrimSpace(detail.RefundID)
-	return detail
+	return detail, nil
 }
 
 // getRefundProvider creates a provider using the order's original instance config.
@@ -615,7 +691,7 @@ func (s *PaymentService) markRefundOk(ctx context.Context, p *RefundPlan) (*Refu
 	if err != nil {
 		return nil, fmt.Errorf("mark refund: %w", err)
 	}
-	s.writeAuditLog(ctx, p.OrderID, "REFUND_SUCCESS", "admin", map[string]any{"refundAmount": p.RefundAmount, "reason": p.Reason, "balanceDeducted": p.BalanceToDeduct, "force": p.Force})
+	s.writeAuditLog(ctx, p.OrderID, "REFUND_SUCCESS", "admin", refundSuccessAuditDetail(p))
 	return &RefundResult{Success: true, BalanceDeducted: p.BalanceToDeduct, SubDaysDeducted: p.SubDaysToDeduct}, nil
 }
 
@@ -629,7 +705,7 @@ func (s *PaymentService) markRefundOkTx(ctx context.Context, client *dbent.Clien
 	if err != nil {
 		return nil, fmt.Errorf("mark refund: %w", err)
 	}
-	detail, err := json.Marshal(map[string]any{"refundAmount": p.RefundAmount, "reason": p.Reason, "balanceDeducted": p.BalanceToDeduct, "force": p.Force})
+	detail, err := json.Marshal(refundSuccessAuditDetail(p))
 	if err != nil {
 		return nil, fmt.Errorf("marshal refund audit: %w", err)
 	}
@@ -644,16 +720,43 @@ func (s *PaymentService) markRefundOkTx(ctx context.Context, client *dbent.Clien
 	return &RefundResult{Success: true, BalanceDeducted: p.BalanceToDeduct, SubDaysDeducted: p.SubDaysToDeduct}, nil
 }
 
+func refundSuccessAuditDetail(p *RefundPlan) map[string]any {
+	return map[string]any{
+		"refundAmount": p.RefundAmount, "reason": p.Reason, "force": p.Force,
+		"deductBalance": p.DeductBalance, "deductionType": p.DeductionType,
+		"balanceDeducted": p.BalanceToDeduct, "subDaysDeducted": p.SubDaysToDeduct,
+		"subscriptionID": p.SubscriptionID, "subscriptionAdjustment": p.subscriptionAdjustment,
+	}
+}
+
 func (s *PaymentService) markRefundPending(ctx context.Context, p *RefundPlan, resp *payment.RefundResponse) (*RefundResult, error) {
 	balanceDeducted := p.BalanceToDeduct
 	subDaysDeducted := p.SubDaysToDeduct
-	rollbackOK := s.RollbackRefund(ctx, p, nil)
-	if rollbackOK {
-		p.BalanceToDeduct = 0
-		p.SubDaysToDeduct = 0
+	tx, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin pending refund: %w", err)
+	}
+	defer func() {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	txCtx := dbent.NewTxContext(ctx, tx)
+	rollbackErr := s.rollbackRefundDeduction(txCtx, p)
+	rollbackOK := rollbackErr == nil
+	if !rollbackOK {
+		// Failed compensation must leave the original deduction intact. Persist
+		// that outcome separately so settlement can avoid deducting it twice.
+		_ = tx.Rollback()
+		tx, err = s.entClient.Tx(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin pending refund after rollback failure: %w", err)
+		}
+		txCtx = dbent.NewTxContext(ctx, tx)
 	}
 
-	_, err := s.entClient.PaymentOrder.UpdateOneID(p.OrderID).
+	claimed, err := tx.PaymentOrder.Update().
+		Where(paymentorder.IDEQ(p.OrderID), paymentorder.StatusEQ(OrderStatusRefunding)).
 		SetStatus(OrderStatusRefundPending).
 		SetRefundAmount(p.RefundAmount).
 		SetRefundReason(p.Reason).
@@ -661,23 +764,52 @@ func (s *PaymentService) markRefundPending(ctx context.Context, p *RefundPlan, r
 		SetForceRefund(p.Force).
 		ClearFailedAt().
 		ClearFailedReason().
-		Save(ctx)
+		Save(txCtx)
 	if err != nil {
 		return nil, fmt.Errorf("mark refund pending: %w", err)
 	}
+	if claimed == 0 {
+		return nil, infraerrors.Conflict("CONFLICT", "order status changed")
+	}
 
 	detail := map[string]any{
-		"refundID":            refundResponseID(resp),
-		"refundAmount":        p.RefundAmount,
-		"reason":              p.Reason,
-		"force":               p.Force,
-		"balanceDeducted":     p.BalanceToDeduct,
-		"subDaysDeducted":     p.SubDaysToDeduct,
-		"balanceRolledBack":   balanceDeducted,
-		"subDaysRolledBack":   subDaysDeducted,
-		"deductionRollbackOK": rollbackOK,
+		"refundID":               refundResponseID(resp),
+		"refundAmount":           p.RefundAmount,
+		"reason":                 p.Reason,
+		"force":                  p.Force,
+		"deductBalance":          p.DeductBalance,
+		"deductionType":          p.DeductionType,
+		"subscriptionID":         p.SubscriptionID,
+		"subscriptionAdjustment": p.subscriptionAdjustment,
+		"balanceDeducted":        balanceDeducted,
+		"subDaysDeducted":        subDaysDeducted,
+		"balanceRolledBack":      0,
+		"subDaysRolledBack":      0,
+		"deductionRollbackOK":    rollbackOK,
 	}
-	s.writeAuditLog(ctx, p.OrderID, "REFUND_PENDING", "admin", detail)
+	if rollbackOK {
+		detail["balanceDeducted"] = 0
+		detail["subDaysDeducted"] = 0
+		detail["balanceRolledBack"] = balanceDeducted
+		detail["subDaysRolledBack"] = subDaysDeducted
+	} else {
+		detail["rollbackError"] = psErrMsg(rollbackErr)
+	}
+	encodedDetail, err := json.Marshal(detail)
+	if err != nil {
+		return nil, fmt.Errorf("marshal pending refund audit: %w", err)
+	}
+	if _, err := tx.PaymentAuditLog.Create().SetOrderID(strconv.FormatInt(p.OrderID, 10)).
+		SetAction("REFUND_PENDING").SetOperator("admin").SetDetail(string(encodedDetail)).Save(txCtx); err != nil {
+		return nil, fmt.Errorf("write pending refund audit: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit pending refund: %w", err)
+	}
+	if rollbackOK {
+		p.BalanceToDeduct = 0
+		p.SubDaysToDeduct = 0
+	}
 
 	warning := "gateway refund is pending confirmation"
 	if !rollbackOK {
@@ -694,21 +826,33 @@ func refundResponseID(resp *payment.RefundResponse) string {
 }
 
 func (s *PaymentService) RollbackRefund(ctx context.Context, p *RefundPlan, gErr error) bool {
+	if err := s.rollbackRefundDeduction(ctx, p); err != nil {
+		slog.Error("[CRITICAL] refund rollback failed", "orderID", p.OrderID, "error", err)
+		s.writeAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED", "admin", map[string]any{
+			"gatewayError": psErrMsg(gErr), "rollbackError": psErrMsg(err),
+			"balanceDeducted": p.BalanceToDeduct, "subDaysDeducted": p.SubDaysToDeduct,
+			"subscriptionID": p.SubscriptionID, "subscriptionAdjustment": p.subscriptionAdjustment,
+		})
+		return false
+	}
+	return true
+}
+
+func (s *PaymentService) rollbackRefundDeduction(ctx context.Context, p *RefundPlan) error {
 	if p.DeductionType == payment.DeductionTypeBalance && p.BalanceToDeduct > 0 {
 		if err := s.userRepo.UpdateBalance(ctx, p.Order.UserID, p.BalanceToDeduct); err != nil {
-			slog.Error("[CRITICAL] rollback failed", "orderID", p.OrderID, "amount", p.BalanceToDeduct, "error", err)
-			s.writeAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED", "admin", map[string]any{"gatewayError": psErrMsg(gErr), "rollbackError": psErrMsg(err), "balanceDeducted": p.BalanceToDeduct})
-			return false
+			return err
 		}
 	}
 	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
+		if p.subscriptionAdjustment != nil {
+			return s.subscriptionSvc.rollbackRefundSubscription(ctx, p.subscriptionAdjustment)
+		}
 		if _, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, p.SubDaysToDeduct); err != nil {
-			slog.Error("[CRITICAL] subscription rollback failed", "orderID", p.OrderID, "subID", p.SubscriptionID, "days", p.SubDaysToDeduct, "error", err)
-			s.writeAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED", "admin", map[string]any{"gatewayError": psErrMsg(gErr), "rollbackError": psErrMsg(err), "subDaysDeducted": p.SubDaysToDeduct})
-			return false
+			return err
 		}
 	}
-	return true
+	return nil
 }
 
 func (s *PaymentService) restoreStatus(ctx context.Context, p *RefundPlan) {

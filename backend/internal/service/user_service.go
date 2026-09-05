@@ -181,6 +181,11 @@ type UserRepository interface {
 	DisableTotp(ctx context.Context, userID int64) error
 }
 
+// UserTokenRevocationRepository atomically invalidates existing access and refresh tokens.
+type UserTokenRevocationRepository interface {
+	IncrementTokenVersion(ctx context.Context, userID int64) error
+}
+
 // RegistrationEmailDomainRepository 是生产用户仓储为非白名单域名单账户兜底策略提供的可选能力。
 // 它独立于 UserRepository，避免无关测试桩和服务消费者实现注册专用方法。
 type RegistrationEmailDomainRepository interface {
@@ -1016,7 +1021,7 @@ func maskOpaqueIdentity(value string) string {
 }
 
 // ChangePassword 修改密码
-// Security: Increments TokenVersion to invalidate all existing JWT tokens
+// Security: Changing the password fingerprint invalidates existing JWT tokens.
 func (s *UserService) ChangePassword(ctx context.Context, userID int64, req ChangePasswordRequest) error {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
@@ -1032,12 +1037,7 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req Chan
 		return fmt.Errorf("set password: %w", err)
 	}
 
-	// Increment TokenVersion to invalidate all existing tokens
-	// This ensures that any tokens issued before the password change become invalid
-	user.TokenVersion++
-
-	// TokenVersion 没有对应的数据库列（见 resolvedTokenVersion：它由 email+password_hash
-	// 指纹推导），改密写回 password_hash 即可让旧 token 失效。
+	// Changing the persisted password hash also changes resolvedTokenVersion.
 	if err := s.userRepo.Update(ctx, user, UserUpdateFields{PasswordHash: true}); err != nil {
 		return fmt.Errorf("update user: %w", err)
 	}

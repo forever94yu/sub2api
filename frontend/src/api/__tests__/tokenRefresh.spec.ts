@@ -32,6 +32,21 @@ function refreshedResponse() {
 }
 
 describe('refreshAuthTokens', () => {
+  it('does not adopt a later login of the same user as a peer token refresh', async () => {
+    seedSession()
+    localStorage.setItem('auth_session_id', 'first-login')
+    mockedPost.mockImplementationOnce(async () => {
+      localStorage.setItem('auth_session_id', 'second-login')
+      localStorage.setItem('auth_token', 'second-login-access')
+      localStorage.setItem('refresh_token', 'second-login-refresh')
+      localStorage.setItem('token_expires_at', String(Date.now() + 3600_000))
+      return refreshedResponse()
+    })
+    const { refreshAuthTokens } = await import('@/api/tokenRefresh')
+    await expect(refreshAuthTokens({ failedAccessToken: 'old-access' })).rejects.toBeDefined()
+    expect(localStorage.getItem('auth_token')).toBe('second-login-access')
+  })
+
   beforeEach(() => {
     localStorage.clear()
     mockedPost.mockReset()
@@ -151,7 +166,7 @@ describe('refreshAuthTokens', () => {
 
     const rejection = expect(
       refreshAuthTokens({ failedAccessToken: 'old-access' })
-    ).rejects.toThrow('refresh token already used')
+    ).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
     await vi.advanceTimersByTimeAsync(1_100)
     await rejection
   })
@@ -171,7 +186,7 @@ describe('refreshAuthTokens', () => {
     localStorage.clear()
     resolveRequest(refreshedResponse())
 
-    const rejection = expect(pending).rejects.toThrow('Session changed during token refresh')
+    const rejection = expect(pending).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
     await vi.advanceTimersByTimeAsync(1_100)
     await rejection
     expect(localStorage.getItem('auth_token')).toBeNull()

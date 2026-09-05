@@ -6,6 +6,7 @@ import type {
   WechatJSAPIPayload,
   WechatOAuthInfo,
 } from '@/types/payment'
+import { getStoredAuthUserId } from '@/api/authSession'
 
 export const PAYMENT_RECOVERY_STORAGE_KEY = 'payment.recovery.current'
 
@@ -32,6 +33,7 @@ export type PaymentLaunchKind =
   | 'unhandled'
 
 export interface PaymentRecoverySnapshot {
+  userId?: number
   orderId: number
   amount: number
   qrCode: string
@@ -261,7 +263,8 @@ export function writePaymentRecoverySnapshot(
   snapshot: PaymentRecoverySnapshot,
   key = PAYMENT_RECOVERY_STORAGE_KEY,
 ): void {
-  storage.setItem(key, JSON.stringify(snapshot))
+  const userId = getStoredAuthUserId()
+  storage.setItem(key, JSON.stringify({ ...snapshot, userId: userId ?? undefined }))
 }
 
 export function clearPaymentRecoverySnapshot(
@@ -301,6 +304,17 @@ export function readPaymentRecoverySnapshot(
       return null
     }
 
+    const userId = getStoredAuthUserId()
+    const ownerId = parsed.userId
+    if (ownerId != null && (!Number.isInteger(ownerId) || ownerId <= 0)) return null
+    // Old snapshots have no owner. Only an explicit callback capability can restore them;
+    // a signed-in account must always match a recorded owner.
+    if (userId !== null) {
+      if (ownerId !== userId) return null
+    } else if (!options.resumeToken || parsed.resumeToken !== options.resumeToken) {
+      return null
+    }
+
     const now = options.now ?? Date.now()
     const expiresAt = Date.parse(parsed.expiresAt)
     if (Number.isFinite(expiresAt) && expiresAt <= now) {
@@ -311,6 +325,7 @@ export function readPaymentRecoverySnapshot(
     }
 
     return {
+      ...(ownerId ? { userId: ownerId } : {}),
       orderId: parsed.orderId,
       amount: parsed.amount,
       qrCode: parsed.qrCode,

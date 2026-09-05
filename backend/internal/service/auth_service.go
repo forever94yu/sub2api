@@ -1611,7 +1611,7 @@ func (s *AuthService) RequestPasswordResetAsync(ctx context.Context, email, fron
 }
 
 // ResetPassword 重置密码
-// Security: Increments TokenVersion to invalidate all existing JWT tokens
+// Security: Changing the password fingerprint invalidates existing JWT tokens.
 func (s *AuthService) ResetPassword(ctx context.Context, email, token, newPassword string) error {
 	// Check if password reset is enabled
 	if !s.IsPasswordResetEnabled(ctx) {
@@ -1648,12 +1648,8 @@ func (s *AuthService) ResetPassword(ctx context.Context, email, token, newPasswo
 		return fmt.Errorf("hash password: %w", err)
 	}
 
-	// Update password and increment TokenVersion
+	// Changing the persisted password hash also changes resolvedTokenVersion.
 	user.PasswordHash = hashedPassword
-	user.TokenVersion++ // Invalidate all existing tokens
-
-	// TokenVersion 无对应数据库列（见 resolvedTokenVersion：由 email+password_hash 指纹推导），
-	// 写回 password_hash 本身即可让旧 token 失效。
 	if err := s.userRepo.Update(ctx, user, UserUpdateFields{PasswordHash: true}); err != nil {
 		logger.LegacyPrintf("service.auth", "[Auth] Database error updating password for user %d: %v", user.ID, err)
 		return ErrServiceUnavailable
@@ -1894,14 +1890,15 @@ func (s *AuthService) RevokeAllUserSessions(ctx context.Context, userID int64) e
 
 // RevokeAllUserTokens invalidates both stateless access tokens and refresh sessions.
 //
-// 注意：users 表没有 token_version 列（resolvedTokenVersion 由 email+password_hash
-// 指纹推导），因此对 user.TokenVersion 自增只影响内存副本。之前紧跟其后的整行
-// Update 不写任何有效数据，却会用旧快照覆盖并发写入的列，故已移除。
-// 会话撤销由下面的 refresh session 清理承担；改密路径通过 password_hash 变化
-// 改变指纹，从而使旧 token 失效。
+// Persist the version before best-effort Redis cleanup so revocation survives
+// cache failures and cannot overwrite concurrent balance or profile changes.
 func (s *AuthService) RevokeAllUserTokens(ctx context.Context, userID int64) error {
-	if _, err := s.userRepo.GetByID(ctx, userID); err != nil {
-		return fmt.Errorf("get user: %w", err)
+	repo, ok := s.userRepo.(UserTokenRevocationRepository)
+	if !ok {
+		return fmt.Errorf("user repository does not support token revocation")
+	}
+	if err := repo.IncrementTokenVersion(ctx, userID); err != nil {
+		return fmt.Errorf("invalidate user tokens: %w", err)
 	}
 
 	if err := s.RevokeAllUserSessions(ctx, userID); err != nil {

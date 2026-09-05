@@ -14,6 +14,7 @@ import {
 } from './adminUIRequest'
 import { refreshAuthTokens } from './tokenRefresh'
 import { getAPIBaseURL } from './url'
+import { authSessionChangedError, captureAuthSession, isCurrentAuthSession, type AuthSessionSnapshot } from './authSession'
 export { buildApiUrl, buildGatewayUrl } from './url'
 
 // ==================== Axios Instance Configuration ====================
@@ -28,6 +29,7 @@ export const apiClient: AxiosInstance = axios.create({
 })
 
 // ==================== Request Interceptor ====================
+type SessionRequestConfig = InternalAxiosRequestConfig & { _authSession?: AuthSessionSnapshot; _retry?: boolean }
 
 // Get user's timezone
 const getUserTimezone = (): string => {
@@ -40,6 +42,11 @@ const getUserTimezone = (): string => {
 
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    const sessionConfig = config as SessionRequestConfig
+    if (sessionConfig._authSession && !isCurrentAuthSession(sessionConfig._authSession)) {
+      return Promise.reject(authSessionChangedError())
+    }
+    sessionConfig._authSession ??= captureAuthSession()
     // Attach token from localStorage
     const token = localStorage.getItem('auth_token')
     if (token && config.headers) {
@@ -80,6 +87,10 @@ apiClient.interceptors.request.use(
 
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
+    const session = (response.config as SessionRequestConfig)?._authSession
+    if (session && !isCurrentAuthSession(session)) {
+      return Promise.reject(authSessionChangedError())
+    }
     // Unwrap standard API response format { code, message, data }
     const apiResponse = response.data as ApiResponse<unknown>
     if (apiResponse && typeof apiResponse === 'object' && 'code' in apiResponse) {
@@ -101,13 +112,17 @@ apiClient.interceptors.response.use(
     return response
   },
   async (error: AxiosError<ApiResponse<unknown>>) => {
+    if ((error as unknown as { code?: string }).code === 'AUTH_SESSION_CHANGED') return Promise.reject(error)
     // Request cancellation: keep the original axios cancellation error so callers can ignore it.
     // Otherwise we'd misclassify it as a generic "network error".
     if (error.code === 'ERR_CANCELED' || axios.isCancel(error)) {
       return Promise.reject(error)
     }
 
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
+    const originalRequest = error.config as SessionRequestConfig | undefined
+    if (originalRequest?._authSession && !isCurrentAuthSession(originalRequest._authSession)) {
+      return Promise.reject(authSessionChangedError())
+    }
 
     // Handle common errors
     if (error.response) {
@@ -162,14 +177,14 @@ apiClient.interceptors.response.use(
 
       // 401: Try to refresh the token if we have a refresh token
       // This handles TOKEN_EXPIRED, INVALID_TOKEN, TOKEN_REVOKED, etc.
-      if (status === 401 && !originalRequest._retry) {
+      if (status === 401 && originalRequest && !originalRequest._retry) {
         const refreshToken = localStorage.getItem('refresh_token')
         const isAuthEndpoint =
           url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
 
         // If we have a refresh token and this is not an auth endpoint, try to refresh
         if (refreshToken && !isAuthEndpoint) {
-          const refreshSessionUser = localStorage.getItem('auth_user')
+          const refreshSession = captureAuthSession()
           originalRequest._retry = true
 
           try {
@@ -180,6 +195,7 @@ apiClient.interceptors.response.use(
                 ? authHeader.slice('Bearer '.length)
                 : null
             const tokens = await refreshAuthTokens({ failedAccessToken })
+            if (!isCurrentAuthSession(refreshSession)) throw authSessionChangedError()
 
             // Retry the original request with the refreshed token
             if (originalRequest.headers) {
@@ -191,7 +207,7 @@ apiClient.interceptors.response.use(
             // its refresh was in flight (for example, when another tab signs in as another user).
             const sessionChanged =
               localStorage.getItem('refresh_token') !== refreshToken ||
-              localStorage.getItem('auth_user') !== refreshSessionUser
+              !isCurrentAuthSession(refreshSession)
             if (sessionChanged) {
               return Promise.reject({
                 status: 401,

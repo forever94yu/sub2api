@@ -1,6 +1,7 @@
 import axios from 'axios'
 import type { ApiResponse } from '@/types'
 import { getAPIBaseURL } from './url'
+import { authSessionChangedError, captureAuthSession, isCurrentAuthSession, type AuthSessionSnapshot } from './authSession'
 
 const AUTH_TOKEN_KEY = 'auth_token'
 const AUTH_USER_KEY = 'auth_user'
@@ -26,6 +27,7 @@ export interface RefreshAuthTokensOptions {
 }
 
 interface AuthSnapshot {
+  session: AuthSessionSnapshot
   accessToken: string | null
   refreshToken: string
   expiresAt: number
@@ -33,6 +35,7 @@ interface AuthSnapshot {
 }
 
 let inFlightRefresh: Promise<RefreshTokenResponse> | null = null
+let inFlightSession: AuthSessionSnapshot | null = null
 
 function getStoredUserID(): number | null {
   const rawUser = localStorage.getItem(AUTH_USER_KEY)
@@ -55,6 +58,7 @@ function readAuthSnapshot(): AuthSnapshot {
   }
 
   return {
+    session: captureAuthSession(),
     accessToken: localStorage.getItem(AUTH_TOKEN_KEY),
     refreshToken,
     expiresAt: Number(localStorage.getItem(TOKEN_EXPIRES_AT_KEY)),
@@ -63,6 +67,7 @@ function readAuthSnapshot(): AuthSnapshot {
 }
 
 function readStoredTokenPair(snapshot: AuthSnapshot): RefreshTokenResponse | null {
+  if (!isCurrentAuthSession(snapshot.session)) return null
   const accessToken = localStorage.getItem(AUTH_TOKEN_KEY)
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
   const expiresAt = Number(localStorage.getItem(TOKEN_EXPIRES_AT_KEY))
@@ -126,6 +131,7 @@ async function waitForPeerRefresh(
   deadline = Date.now() + PEER_REFRESH_WAIT_MS
 ): Promise<RefreshTokenResponse | null> {
   while (Date.now() < deadline) {
+    if (!isCurrentAuthSession(snapshot.session)) throw authSessionChangedError()
     const peerResult = readPeerRefreshResult(snapshot, failedAccessToken)
     if (peerResult) {
       return peerResult
@@ -154,12 +160,14 @@ async function requestTokenPair(
   const peerRefreshDeadline = Date.now() + TOKEN_REFRESH_TIMEOUT_MS + PEER_REFRESH_GRACE_MS
 
   try {
+    if (!isCurrentAuthSession(snapshot.session)) throw authSessionChangedError()
     const response = await axios.post<ApiResponse<RefreshTokenResponse>>(
       `${getAPIBaseURL()}/auth/refresh`,
       { refresh_token: snapshot.refreshToken },
       { headers: { 'Content-Type': 'application/json' }, timeout: TOKEN_REFRESH_TIMEOUT_MS }
     )
     const payload = response.data
+    if (!isCurrentAuthSession(snapshot.session)) throw authSessionChangedError()
     if (payload.code !== 0 || !payload.data) {
       throw new Error(payload.message || 'Token refresh failed')
     }
@@ -225,15 +233,17 @@ async function runRefresh(options: RefreshAuthTokensOptions): Promise<RefreshTok
 export function refreshAuthTokens(
   options: RefreshAuthTokensOptions = {}
 ): Promise<RefreshTokenResponse> {
-  if (inFlightRefresh) {
+  if (inFlightRefresh && inFlightSession && isCurrentAuthSession(inFlightSession)) {
     return inFlightRefresh
   }
 
+  inFlightSession = captureAuthSession()
   const pending = runRefresh(options)
   inFlightRefresh = pending
   const clearPending = (): void => {
     if (inFlightRefresh === pending) {
       inFlightRefresh = null
+      inFlightSession = null
     }
   }
   void pending.then(clearPending, clearPending)

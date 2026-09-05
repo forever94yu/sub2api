@@ -256,10 +256,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { captureAuthSession, isCurrentAuthSession } from '@/api/authSession'
 import { usePaymentStore } from '@/stores/payment'
 import { useSubscriptionStore } from '@/stores/subscriptions'
 import { useAppStore } from '@/stores'
@@ -421,6 +422,24 @@ function resetPayment() {
   paymentState.value = emptyPaymentState()
   removeRecoverySnapshot()
 }
+
+let displayedSession = captureAuthSession()
+function discardDisplayedPayment() {
+  displayedSession = captureAuthSession()
+  paymentPhase.value = 'select'
+  paymentState.value = emptyPaymentState()
+  selectedPlan.value = null
+}
+
+watch(() => authStore.user?.id, discardDisplayedPayment)
+
+function onAuthStorageChange(event: StorageEvent) {
+  if ((event.key === null || event.key === 'auth_session_id' || event.key === 'auth_user') && !isCurrentAuthSession(displayedSession)) {
+    discardDisplayedPayment()
+  }
+}
+window.addEventListener('storage', onAuthStorageChange)
+onBeforeUnmount(() => window.removeEventListener('storage', onAuthStorageChange))
 
 async function redirectToPaymentResult(state: PaymentRecoverySnapshot): Promise<void> {
   const query: Record<string, string | undefined> = {}
@@ -765,6 +784,7 @@ async function confirmSubscribe() {
 }
 
 async function createOrder(orderAmount: number, orderType: OrderType, planId?: number, options: CreateOrderOptions = {}) {
+  const session = captureAuthSession()
   submitting.value = true
   errorMessage.value = ''
   errorHintMessage.value = ''
@@ -789,6 +809,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     }
 
     const result = await paymentStore.createOrder(payload) as CreateOrderResult & { resume_token?: string }
+    if (!isCurrentAuthSession(session)) return
     const openWindow = (url: string) => {
       const win = window.open(url, 'paymentPopup', getPaymentPopupFeatures())
       if (!win || win.closed) {
@@ -868,6 +889,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     if (decision.kind === 'wechat_jsapi' && decision.jsapi) {
       try {
         const jsapiResult = await invokeWechatJsapiPayment(decision.jsapi as Record<string, unknown>)
+        if (!isCurrentAuthSession(session)) return
         const errMsg = String(jsapiResult.err_msg || '').toLowerCase()
         if (errMsg.includes('cancel')) {
           appStore.showInfo(t('payment.qr.cancelled'))
@@ -893,6 +915,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
           await redirectToPaymentResult(resultState)
         }
       } catch (err: unknown) {
+        if (!isCurrentAuthSession(session)) return
         resetPayment()
         const fallbackApplied = await attemptMobileQrFallback(err, {
           orderAmount,
@@ -915,6 +938,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
       openWindow(decision.paymentState.payUrl)
     }
   } catch (err: unknown) {
+    if (!isCurrentAuthSession(session)) return
     const apiErr = err as Record<string, unknown>
     if (apiErr.reason === 'TOO_MANY_PENDING') {
       const metadata = apiErr.metadata as Record<string, unknown> | undefined
@@ -992,6 +1016,7 @@ function shouldFallbackToDesktopQr(err: unknown, paymentMethod: string, attempte
 }
 
 async function attemptMobileQrFallback(err: unknown, context: MobileQrFallbackContext): Promise<boolean> {
+  const session = captureAuthSession()
   if (!shouldFallbackToDesktopQr(err, context.paymentType, context.attempted)) {
     return false
   }
@@ -1008,6 +1033,7 @@ async function attemptMobileQrFallback(err: unknown, context: MobileQrFallbackCo
       isWechatBrowser: false,
     })
     const result = await paymentStore.createOrder(payload) as CreateOrderResult & { resume_token?: string }
+    if (!isCurrentAuthSession(session)) return true
     const stripeMethod = visibleMethod === 'wxpay' ? 'wechat_pay' : 'alipay'
     const stripeRouteUrl = result.client_secret
       ? router.resolve({
@@ -1097,8 +1123,10 @@ async function resumeWechatPaymentFromQuery() {
 }
 
 onMounted(async () => {
+  const session = captureAuthSession()
   try {
     const res = await paymentAPI.getCheckoutInfo()
+    if (!isCurrentAuthSession(session)) return
     checkout.value = res.data
     if (enabledMethods.value.length) {
       const order: readonly string[] = METHOD_ORDER

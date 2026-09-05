@@ -25,6 +25,35 @@ describe('API Client', () => {
   })
 
   // --- 请求拦截器 ---
+  describe('response session ownership', () => {
+    it.each([200, 401])('discards a stale %s response without touching the replacement session', async (status) => {
+      localStorage.setItem('auth_session_id', 'session-a')
+      localStorage.setItem('auth_user', JSON.stringify({ id: 1 }))
+      localStorage.setItem('auth_token', 'access-a')
+      apiClient.defaults.adapter = async config => {
+        localStorage.setItem('auth_session_id', 'session-b')
+        localStorage.setItem('auth_user', JSON.stringify({ id: 2 }))
+        localStorage.setItem('auth_token', 'access-b')
+        const response = { status, data: { code: 0, data: { id: 1 } }, headers: {}, config, statusText: 'OK' }
+        if (status === 401) throw { config, response }
+        return response
+      }
+      await expect(apiClient.get('/auth/me')).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(localStorage.getItem('auth_token')).toBe('access-b')
+      expect(JSON.parse(localStorage.getItem('auth_user')!).id).toBe(2)
+    })
+
+    it('accepts a response after a normal token and profile refresh', async () => {
+      localStorage.setItem('auth_session_id', 'same-session')
+      localStorage.setItem('auth_user', JSON.stringify({ id: 1, balance: 10 }))
+      apiClient.defaults.adapter = async config => {
+        localStorage.setItem('auth_user', JSON.stringify({ id: 1, balance: 20 }))
+        localStorage.setItem('auth_token', 'rotated-access')
+        return { status: 200, data: { code: 0, data: { id: 1 } }, headers: {}, config, statusText: 'OK' }
+      }
+      await expect(apiClient.get('/auth/me')).resolves.toMatchObject({ data: { id: 1 } })
+    })
+  })
 
   describe('请求拦截器', () => {
     it('规范化相对 API base，避免在回调页拼出相对 v1 路径', async () => {

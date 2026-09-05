@@ -167,6 +167,9 @@ func TestHandleResponsesBufferedStreamingResponse_PreservesMessageStartCacheUsag
 			`event: message_delta`,
 			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}`,
 			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
 		}, "\n"))),
 	}
 
@@ -217,7 +220,7 @@ func TestHandleResponsesStreamingResponse_PreservesMessageStartCacheUsage(t *tes
 	require.Contains(t, rec.Body.String(), `response.completed`)
 }
 
-func TestParseAnthropicSSEField(t *testing.T) {
+func TestAnthropicCompatSSEFieldParsing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -287,9 +290,13 @@ func TestParseAnthropicSSEField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotValue, gotOK := parseAnthropicSSEField(tt.line, tt.field)
-			require.Equal(t, tt.wantOK, gotOK, "parseAnthropicSSEField() ok")
-			require.Equal(t, tt.wantValue, gotValue, "parseAnthropicSSEField() value")
+			extract := extractOpenAISSEEventLine
+			if tt.field == "data" {
+				extract = extractOpenAISSEDataLine
+			}
+			gotValue, gotOK := extract(tt.line)
+			require.Equal(t, tt.wantOK, gotOK)
+			require.Equal(t, tt.wantValue, gotValue)
 		})
 	}
 }
@@ -313,6 +320,9 @@ func TestHandleResponsesBufferedStreamingResponse_CompactSSEFormat(t *testing.T)
 			``,
 			`event:message_delta`,
 			`data:{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`,
+			``,
+			`event:message_stop`,
+			`data:{"type":"message_stop"}`,
 			``,
 		}, "\n"))),
 	}

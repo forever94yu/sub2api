@@ -402,6 +402,7 @@ describe('PaymentView payment recovery', () => {
   })
 
   it('restores a custom EasyPay method as the selected payment method', async () => {
+    window.localStorage.setItem('auth_user', JSON.stringify({ id: 1 }))
     getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
       methods: {
         wxpay: checkoutInfoFixture().data.methods.wxpay,
@@ -418,6 +419,7 @@ describe('PaymentView payment recovery', () => {
       },
     }))
     window.localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, JSON.stringify({
+      userId: 1,
       orderId: 888,
       amount: 66,
       qrCode: 'ldc-qr',
