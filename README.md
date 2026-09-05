@@ -65,6 +65,12 @@ Community projects that extend or integrate with Sub2API:
 
 ---
 
+## Codex Model Catalog
+
+For Codex Ultra requests that arrive as `xhigh`, see the
+[local model catalog setup](deploy/CODEX_MODELS.md). API key clients may use
+bundled model metadata instead of refreshing the gateway's Codex manifest.
+
 ## Nginx Reverse Proxy Note
 
 When using Nginx as a reverse proxy for Sub2API (or CRS) with Codex CLI, add the following to the `http` block in your Nginx configuration:

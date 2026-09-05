@@ -65,6 +65,12 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 
 ---
 
+## Codex 模型目录
+
+Codex 选择 Ultra 后请求仍为 `xhigh` 时，请参阅
+[本机模型目录配置](deploy/CODEX_MODELS.md)。使用 API Key 的客户端可能直接使用内置模型资料，
+不会刷新网关提供的模型清单；需要通过 `model_catalog_json` 加载正确资料并重启客户端。
+
 ## Nginx 反向代理注意事项
 
 通过 Nginx 反向代理 Sub2API（或 CRS 服务）并搭配 Codex CLI 使用时，需要在 Nginx 配置的 `http` 块中添加：

@@ -8,6 +8,19 @@ permissions:
   contents: read
 
 jobs:
+  codex-model-catalog:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.9'
+      - name: Test Codex model catalog export
+        run: python -m unittest discover -s deploy/tests -p test_export_codex_models.py
+
   shell:
     runs-on: macos-15
     steps:
