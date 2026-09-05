@@ -105,9 +105,14 @@ func openAIReasoningEffortToClaudeOutputEffort(effort string) string {
 // openAICompatAnthropicReasoningEffort resolves the effort emitted by the
 // Anthropic bridge after the final upstream model is known. Anthropic's max is
 // normally translated to OpenAI xhigh, but max-capable models accept the
-// original value on Responses and Chat Completions.
+// original value on Responses and Chat Completions. Astra also accepts the
+// client's Ultra orchestration setting as the native max effort.
 func openAICompatAnthropicReasoningEffort(req *apicompat.AnthropicRequest, upstreamModel, convertedEffort string) string {
-	if req == nil || req.OutputConfig == nil || !strings.EqualFold(strings.TrimSpace(req.OutputConfig.Effort), "max") {
+	if req == nil || req.OutputConfig == nil {
+		return convertedEffort
+	}
+	effort := strings.TrimSpace(req.OutputConfig.Effort)
+	if !strings.EqualFold(effort, "max") && !strings.EqualFold(effort, "ultra") {
 		return convertedEffort
 	}
 	if normalized := normalizeOpenAIReasoningEffortForModel(req.OutputConfig.Effort, upstreamModel); normalized != "" {

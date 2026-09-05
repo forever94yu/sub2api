@@ -194,13 +194,12 @@ func sanitizeGroupReasoningEffortPolicy(group *Group) {
 // known effort levels. Omitted values remain untouched so upstream defaults
 // stay in control.
 func ApplyOpenAIReasoningEffortPolicy(body []byte, maxEffort string, mappings []ReasoningEffortMapping) ([]byte, bool) {
+	result, changed := normalizeAstraReasoningEffortBody(body, gjson.GetBytes(body, "model").String())
 	maxRank, hasMax := reasoningEffortRank(maxEffort)
 	if len(body) == 0 || (!hasMax && len(mappings) == 0) {
-		return body, false
+		return result, changed
 	}
 
-	result := body
-	changed := false
 	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
 		field := gjson.GetBytes(result, path)
 		if !field.Exists() || field.Type != gjson.String {

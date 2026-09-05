@@ -1479,6 +1479,10 @@ func normalizeOpenAIReasoningEffort(raw string) string {
 }
 
 func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
+	if strings.EqualFold(strings.TrimSpace(raw), "ultra") &&
+		strings.EqualFold(strings.TrimSpace(lastOpenAIModelSegment(model)), openAIGPT6AstraModelID) {
+		return "max"
+	}
 	if strings.EqualFold(strings.TrimSpace(raw), "max") && supportsOpenAIMaxReasoningEffort(model) {
 		return "max"
 	}

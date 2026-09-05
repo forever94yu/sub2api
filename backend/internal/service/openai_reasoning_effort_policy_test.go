@@ -111,6 +111,9 @@ func TestApplyOpenAIReasoningEffortPolicy(t *testing.T) {
 		want     string
 		changed  bool
 	}{
+		{name: "Astra ultra without ceiling", body: `{"model":"gpt-6-astra","reasoning":{"effort":"ultra"}}`, path: "reasoning.effort", want: "max", changed: true},
+		{name: "Astra ultra respects ceiling", body: `{"model":"gpt-6-astra","reasoning_effort":"ultra"}`, max: "xhigh", path: "reasoning_effort", want: "xhigh", changed: true},
+		{name: "Astra ultra maps before ceiling", body: `{"model":"gpt-6-astra","reasoning_effort":"ultra"}`, max: "high", mappings: []ReasoningEffortMapping{{From: "max", To: "medium"}}, path: "reasoning_effort", want: "medium", changed: true},
 		{name: "nested caps high", body: `{"reasoning":{"effort":"xhigh"}}`, max: "medium", path: "reasoning.effort", want: "medium", changed: true},
 		{name: "flat caps high", body: `{"reasoning_effort":"high"}`, max: "low", path: "reasoning_effort", want: "low", changed: true},
 		{name: "does not raise omitted", body: `{"model":"gpt-5"}`, max: "low", path: "reasoning_effort", want: "", changed: false},

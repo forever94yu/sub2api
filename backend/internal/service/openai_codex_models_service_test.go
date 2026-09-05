@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -155,6 +156,43 @@ func newCodexModelsTestAccount() *Account {
 			"chatgpt_account_id": "acc-123",
 		},
 	}
+}
+
+func requireSynthesizedCodexModelSchema(t *testing.T, body json.RawMessage, slug string) {
+	t.Helper()
+	var model map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body, &model))
+	var gotSlug, displayName string
+	require.NoError(t, json.Unmarshal(model["slug"], &gotSlug))
+	require.Equal(t, slug, gotSlug)
+	require.NoError(t, json.Unmarshal(model["display_name"], &displayName))
+	require.Equal(t, slug, displayName)
+	for field, want := range map[string]string{
+		"supported_reasoning_levels":   `[]`,
+		"shell_type":                   `"unified_exec"`,
+		"visibility":                   `"list"`,
+		"supported_in_api":             `true`,
+		"priority":                     `0`,
+		"support_verbosity":            `false`,
+		"truncation_policy":            `{"mode":"bytes","limit":10000}`,
+		"experimental_supported_tools": `[]`,
+	} {
+		require.Contains(t, model, field, "required Codex ModelInfo field")
+		require.JSONEq(t, want, string(model[field]), "field %s", field)
+	}
+	for _, field := range []string{"default_reasoning_level", "multi_agent_reasoning_effort", "context_window", "model_messages"} {
+		require.NotContains(t, model, field, "standard model IDs do not provide these capabilities")
+	}
+	requireCodexSynthesizedInstructions(t, model["base_instructions"], slug)
+}
+
+func requireCodexSynthesizedInstructions(t *testing.T, raw json.RawMessage, slug string) {
+	t.Helper()
+	var instructions string
+	require.NoError(t, json.Unmarshal(raw, &instructions))
+	require.NotEmpty(t, strings.TrimSpace(instructions), "catalog instructions must retain Codex agent behavior")
+	require.Contains(t, instructions, "Codex")
+	require.Equal(t, defaultCodexSynthInstructions(slug), instructions)
 }
 
 func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
@@ -358,7 +396,11 @@ func TestFetchCodexModelsManifestNotModified(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotIfNoneMatch = r.Header.Get("If-None-Match")
 		w.Header().Set("ETag", `W/"abc123"`)
-		w.WriteHeader(http.StatusNotModified)
+		if gotIfNoneMatch != "" {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5.5"}]}`))
 	}))
 	defer server.Close()
 
@@ -374,8 +416,8 @@ func TestFetchCodexModelsManifestNotModified(t *testing.T) {
 	if !manifest.NotModified {
 		t.Error("expected NotModified to be true")
 	}
-	if gotIfNoneMatch != `W/"abc123"` {
-		t.Errorf("if-none-match header: got %q", gotIfNoneMatch)
+	if gotIfNoneMatch != "" {
+		t.Errorf("OAuth must validate the client representation after fetching the body: got upstream if-none-match %q", gotIfNoneMatch)
 	}
 }
 
@@ -493,9 +535,13 @@ func TestFetchCodexModelsManifestAPIKeyConvertsStandardOpenAIModelList(t *testin
 	if err != nil {
 		t.Fatalf("FetchCodexModelsManifest returned error: %v", err)
 	}
-	if got, want := string(manifest.Body), `{"models":[{"slug":"gpt-5.6"},{"slug":"gpt-5.6-codex"}]}`; got != want {
-		t.Errorf("converted body: got %q, want %q", got, want)
+	var envelope struct {
+		Models []json.RawMessage `json:"models"`
 	}
+	require.NoError(t, json.Unmarshal(manifest.Body, &envelope))
+	require.Len(t, envelope.Models, 2)
+	requireSynthesizedCodexModelSchema(t, envelope.Models[0], "gpt-5.6")
+	requireSynthesizedCodexModelSchema(t, envelope.Models[1], "gpt-5.6-codex")
 	require.Equal(t, codexModelsManifestBodyETag(manifest.Body), manifest.ETag)
 	require.Equal(t, `W/"openai-list"`, manifest.upstreamETag)
 }
@@ -525,7 +571,7 @@ func TestAdjustAPIKeyCodexModelsManifest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := adjustAPIKeyCodexModelsManifest([]byte(tt.body))
+			got, err := adjustCodexModelsManifest([]byte(tt.body), true)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, string(got))
 		})
@@ -573,14 +619,15 @@ func TestFetchCodexModelsManifestOAuthPreservesResponsesLite(t *testing.T) {
 
 func TestConvertOpenAIModelListToCodexManifest(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
-		want string
+		name  string
+		body  string
+		want  string
+		slugs []string
 	}{
 		{
-			name: "standard list",
-			body: `{"object":"list","data":[{"id":"m-1"},{"id":"m-2"}]}`,
-			want: `{"models":[{"slug":"m-1"},{"slug":"m-2"}]}`,
+			name:  "standard list preserves order and duplicate IDs",
+			body:  `{"object":"list","data":[{"id":"m-2"},{"id":"m-1"},{"id":"m-2"}]}`,
+			slugs: []string{"m-2", "m-1", "m-2"},
 		},
 		{
 			name: "codex manifest unchanged",
@@ -616,8 +663,18 @@ func TestConvertOpenAIModelListToCodexManifest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := string(convertOpenAIModelListToCodexManifest([]byte(tt.body))); got != tt.want {
-				t.Errorf("got %q, want %q", got, tt.want)
+			got := convertOpenAIModelListToCodexManifest([]byte(tt.body))
+			if tt.slugs == nil {
+				require.Equal(t, tt.want, string(got))
+				return
+			}
+			var envelope struct {
+				Models []json.RawMessage `json:"models"`
+			}
+			require.NoError(t, json.Unmarshal(got, &envelope))
+			require.Len(t, envelope.Models, len(tt.slugs))
+			for i, slug := range tt.slugs {
+				requireSynthesizedCodexModelSchema(t, envelope.Models[i], slug)
 			}
 		})
 	}
