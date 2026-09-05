@@ -13,6 +13,12 @@ const compatPromptCacheKeyPrefix = "compat_cc_"
 
 func shouldAutoInjectPromptCacheKeyForCompat(model string) bool {
 	trimmed := strings.TrimSpace(strings.ToLower(model))
+	if strings.EqualFold(lastOpenAIModelSegment(trimmed), openAIGPT6AstraModelID) {
+		return true
+	}
+	if isUnsupportedOpenAIGPT6AstraModel(trimmed) {
+		return false
+	}
 	// 仅对 Codex OAuth 路径支持的 GPT-5 族开启自动注入，避免 normalizeCodexModel
 	// 的默认兜底把任意模型（如 gpt-4o、claude-*）误判为 gpt-5.4。
 	if !strings.Contains(trimmed, "gpt-5") && !strings.Contains(trimmed, "codex") {

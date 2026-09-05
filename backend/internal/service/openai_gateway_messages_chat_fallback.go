@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -70,12 +71,12 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	convertedEffort := chatReq.ReasoningEffort
 	reasoningEffort := &convertedEffort
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
-	serviceTier := extractOpenAIServiceTierFromBody(body)
 
 	chatBody, err := json.Marshal(chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal chat completions request: %w", err)
 	}
+	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
 	if account.Platform == PlatformOpenAI {
 		if policyBody, changed := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, chatBody); changed {
 			chatBody = policyBody
@@ -155,7 +156,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 		BillingModel:    billingModel,
 		UpstreamModel:   upstreamModel,
 		ReasoningEffort: reasoningEffort,
-		ServiceTier:     serviceTier,
+		ServiceTier:     upstreamResponseModelObserverFromContext(c).OpenAIServiceTier(serviceTier),
 		Stream:          false,
 		Duration:        time.Since(startTime),
 	}, nil
@@ -203,6 +204,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 
 	scan := s.scanCCStream(resp, "openai messages chat fallback", requestID, startTime, emitChunk)
 	usage := scan.Usage
+	serviceTier = openai.ResolveServiceTier(scan.ServiceTier, serviceTier)
 
 	if scan.Err != nil {
 		// Broken upstream read: skip finalization so no synthetic message_stop

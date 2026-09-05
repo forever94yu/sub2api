@@ -616,6 +616,66 @@ func TestChatCompletionsToResponses_TemperatureStrippedForReasoningModel(t *test
 	assert.NotContains(t, string(b), `"top_p"`)
 }
 
+func TestChatCompletionsToResponses_AstraOmitsUnsupportedSamplingParameters(t *testing.T) {
+	temp := 0.7
+	req := &ChatCompletionsRequest{
+		Model:       "gpt-6-astra",
+		Messages:    []ChatMessage{{Role: "user", Content: json.RawMessage(`"Hi"`)}},
+		Temperature: &temp,
+		TopP:        &temp,
+	}
+
+	resp, err := ChatCompletionsToResponses(req)
+	require.NoError(t, err)
+	assert.Nil(t, resp.Temperature)
+	assert.Nil(t, resp.TopP)
+
+	payload, err := json.Marshal(resp)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), `"temperature"`)
+	assert.NotContains(t, string(payload), `"top_p"`)
+}
+
+func TestNormalizeResponsesSamplingForModel_UsesFinalUpstreamAstraModel(t *testing.T) {
+	for _, model := range []string{
+		"gpt-6-astra",
+		"GPT-6-ASTRA",
+		"openai/gpt-6-astra",
+		"gpt-image-proxy/gpt-6-astra",
+	} {
+		t.Run(model, func(t *testing.T) {
+			temp := 0.7
+			req := &ResponsesRequest{Model: "client-model-alias", Temperature: &temp, TopP: &temp}
+
+			NormalizeResponsesSamplingForModel(req, model)
+
+			assert.Nil(t, req.Temperature)
+			assert.Nil(t, req.TopP)
+		})
+	}
+}
+
+func TestNormalizeResponsesSamplingForModel_PreservesUnknownAstraVariants(t *testing.T) {
+	for _, model := range []string{
+		"gpt-6-astra-preview",
+		"gpt-6-astra-20260905",
+		"gpt_6_astra",
+		"vendor-gpt-6-build-astra-opus",
+	} {
+		t.Run(model, func(t *testing.T) {
+			temp := 0.7
+			req := &ResponsesRequest{Temperature: &temp, TopP: &temp}
+
+			NormalizeResponsesSamplingForModel(req, model)
+
+			require.NotNil(t, req.Temperature)
+			require.NotNil(t, req.TopP)
+			assert.InDelta(t, 0.7, *req.Temperature, 1e-9)
+			assert.InDelta(t, 0.7, *req.TopP, 1e-9)
+		})
+	}
+}
+
 func TestChatCompletionsToResponses_TemperaturePreservedForNonReasoningModel(t *testing.T) {
 	temp := 0.7
 	req := &ChatCompletionsRequest{

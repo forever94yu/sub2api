@@ -957,17 +957,58 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		imageCount := 0
 		searchCount := 0
 		var imageOutputSizes []string
-		if reqStream {
-			streamResult, err := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
-			if err != nil {
-				return nil, err
+		buildForwardResult := func() *OpenAIForwardResult {
+			if usage == nil {
+				usage = &OpenAIUsage{}
 			}
-			usage = streamResult.usage
-			firstTokenMs = streamResult.firstTokenMs
-			responseID = strings.TrimSpace(streamResult.responseID)
-			imageCount = streamResult.imageCount
-			imageOutputSizes = streamResult.imageOutputSizes
-			searchCount = streamResult.searchCount
+			forwardResult := &OpenAIForwardResult{
+				RequestID:                     resp.Header.Get("x-request-id"),
+				ResponseID:                    responseID,
+				Usage:                         *usage,
+				Model:                         originalModel,
+				BillingModel:                  billingModel,
+				UpstreamModel:                 upstreamModel,
+				UpstreamResponseModel:         observedUpstreamResponseModel(c),
+				UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+				ServiceTier:                   upstreamResponseModelObserverFromContext(c).OpenAIServiceTier(serviceTier),
+				ReasoningEffort:               reasoningEffort,
+				Stream:                        reqStream,
+				OpenAIWSMode:                  false,
+				Duration:                      time.Since(startTime),
+				FirstTokenMs:                  firstTokenMs,
+			}
+			if imageCount > 0 {
+				forwardResult.ImageCount = imageCount
+				forwardResult.ImageSize = imageSizeTier
+				forwardResult.ImageInputSize = imageInputSize
+				forwardResult.ImageOutputSizes = imageOutputSizes
+				forwardResult.BillingModel = imageBillingModel
+			}
+			// Grok-native web_search / x_search / tool_search tool invocations (per-1k pricing).
+			// Token cost still applies separately when usage is present; search is additive only
+			// when search_price_per_1k is configured (nil price -> $0 from CalculateSearchCost).
+			if searchCount > 0 && account != nil && account.IsGrok() {
+				forwardResult.SearchCount = searchCount
+			}
+			return forwardResult
+		}
+		if reqStream {
+			streamResult, streamErr := s.handleStreamingResponseWithReasoning(ctx, resp, c, account, startTime, originalModel, upstreamModel, reasoningEffortValue)
+			if streamResult != nil {
+				usage = streamResult.usage
+				firstTokenMs = streamResult.firstTokenMs
+				responseID = strings.TrimSpace(streamResult.responseID)
+				imageCount = streamResult.imageCount
+				imageOutputSizes = streamResult.imageOutputSizes
+				searchCount = streamResult.searchCount
+			}
+			if streamErr != nil {
+				var failoverErr *UpstreamFailoverError
+				if streamResult == nil || errors.As(streamErr, &failoverErr) || errors.Is(streamErr, errOpenAICyberPolicyForwarded) || GetOpsCyberPolicy(c) != nil {
+					return nil, streamErr
+				}
+				return buildForwardResult(), streamErr
+			}
 		} else {
 			nonStreamResult, err := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
 			if err != nil {
@@ -989,40 +1030,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 		}
 
-		if usage == nil {
-			usage = &OpenAIUsage{}
-		}
-
-		forwardResult := &OpenAIForwardResult{
-			RequestID:                     resp.Header.Get("x-request-id"),
-			ResponseID:                    responseID,
-			Usage:                         *usage,
-			Model:                         originalModel,
-			BillingModel:                  billingModel,
-			UpstreamModel:                 upstreamModel,
-			UpstreamResponseModel:         observedUpstreamResponseModel(c),
-			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
-			ServiceTier:                   serviceTier,
-			ReasoningEffort:               reasoningEffort,
-			Stream:                        reqStream,
-			OpenAIWSMode:                  false,
-			Duration:                      time.Since(startTime),
-			FirstTokenMs:                  firstTokenMs,
-		}
-		if imageCount > 0 {
-			forwardResult.ImageCount = imageCount
-			forwardResult.ImageSize = imageSizeTier
-			forwardResult.ImageInputSize = imageInputSize
-			forwardResult.ImageOutputSizes = imageOutputSizes
-			forwardResult.BillingModel = imageBillingModel
-		}
-		// Grok-native web_search / x_search / tool_search tool invocations (per-1k pricing).
-		// Token cost still applies separately when usage is present; search is additive only
-		// when search_price_per_1k is configured (nil price → $0 from CalculateSearchCost).
-		if searchCount > 0 && account != nil && account.IsGrok() {
-			forwardResult.SearchCount = searchCount
-		}
-		return forwardResult, nil
+		return buildForwardResult(), nil
 	}
 }
 

@@ -440,7 +440,7 @@ func TestRelay_OnTurnComplete_PerTerminalEvent(t *testing.T) {
 	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
 		{
 			msgType: coderws.MessageText,
-			payload: []byte(`{"type":"response.completed","response":{"id":"resp_turn_1","usage":{"input_tokens":2,"output_tokens":1}}}`),
+			payload: []byte(`{"type":"response.completed","response":{"id":"resp_turn_1","service_tier":"fast","usage":{"input_tokens":2,"output_tokens":1}}}`),
 		},
 		{
 			msgType: coderws.MessageText,
@@ -464,12 +464,16 @@ func TestRelay_OnTurnComplete_PerTerminalEvent(t *testing.T) {
 	require.Equal(t, "response.completed", turns[0].TerminalEventType)
 	require.Equal(t, 2, turns[0].Usage.InputTokens)
 	require.Equal(t, 1, turns[0].Usage.OutputTokens)
+	require.NotNil(t, turns[0].ServiceTier)
+	require.Equal(t, "priority", *turns[0].ServiceTier)
 	require.Equal(t, "resp_turn_2", turns[1].RequestID)
 	require.Equal(t, "response.failed", turns[1].TerminalEventType)
 	require.Equal(t, 3, turns[1].Usage.InputTokens)
 	require.Equal(t, 4, turns[1].Usage.OutputTokens)
+	require.Nil(t, turns[1].ServiceTier, "a missing later tier must not reuse the previous turn")
 	require.Equal(t, 5, result.Usage.InputTokens)
 	require.Equal(t, 5, result.Usage.OutputTokens)
+	require.Nil(t, result.ServiceTier, "the final relay result must expose the latest turn tier")
 }
 
 func TestRelay_OnTurnComplete_UsesCurrentResponseCreateModel(t *testing.T) {

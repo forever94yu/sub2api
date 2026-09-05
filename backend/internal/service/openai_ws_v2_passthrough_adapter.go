@@ -753,19 +753,16 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	firstClientMessage = updatedFirst
 
-	// 在 policy filter 之后再提取 service_tier / reasoning_effort 用于
-	// usage 上报：filter
-	// 命中时 service_tier 已经从 firstClientMessage 中删除，billing 应当
-	// 反映上游实际处理的 tier（nil = default），而不是用户最初请求的
-	// "priority"。HTTP 入口（line ~2728 extractOpenAIServiceTier(reqBody)）
-	// 与 WS ingress（openai_ws_forwarder.go:2991 取自 payload）的语义一致。
+	// 在 policy filter 之后提取 service_tier / reasoning_effort 用于 usage
+	// 上报。relay 会逐 turn 观察响应中的实际 service_tier；这里保存的是
+	// 响应缺失或无效时使用的、经过 policy 处理后的请求 fallback。
 	//
 	// 多轮 passthrough：OpenAI Realtime / Responses WS 协议允许客户端在
 	// 同一连接的不同 response.create 帧上发送不同 service_tier（参考
 	// codex-rs/core/src/client.rs build_responses_request 每次重新填值）。
 	// 因此使用 atomic.Pointer[string] 在 filter（runClientToUpstream
 	// goroutine）和 OnTurnComplete / final result（runUpstreamToClient
-	// goroutine）之间同步当前 turn 的 usage metadata。
+	// goroutine）之间同步当前 turn 的请求 fallback 和其他 usage metadata。
 	usageMeta.initFromFirstFrame(firstClientMessage, capturedSessionModel)
 	promptCacheKey := strings.TrimSpace(gjson.GetBytes(firstClientMessage, "prompt_cache_key").String())
 
@@ -1032,10 +1029,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//   - blocked != nil：该帧不会发送上游，usage metadata 应保持
 			//     上一轮值。
 			//   - policyErr != nil：异常路径，保持上一轮值。
-			//   - 不带 service_tier 的 response.create 会让
-			//     extractOpenAIServiceTierFromBody 返回 nil；这里有意
-			//     覆盖（Store(nil)），因为 OpenAI 上游对该帧实际不传
-			//     service_tier 时按 default 处理，billing 应如实反映。
+			//   - 不带 service_tier 的 response.create 会让请求 fallback
+			//     变为 nil；若响应也没有有效 tier，billing 同样回退 nil。
 			if policyErr == nil && blocked == nil && isResponseCreate {
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 				responseCreateAtCopy := responseCreateAt
@@ -1139,7 +1134,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					UpstreamModel:                 openAIWSDifferentModel(turnRequestModel, turnUpstreamModel),
 					UpstreamResponseModel:         turn.ResponseModel,
 					UpstreamResponseModelConflict: turn.ResponseModelConflict,
-					ServiceTier:                   usageMeta.serviceTier.Load(),
+					ServiceTier:                   openai.ResolveServiceTier(turn.ServiceTier, usageMeta.serviceTier.Load()),
 					ReasoningEffort:               usageMeta.reasoningEffort.Load(),
 					Stream:                        true,
 					OpenAIWSMode:                  true,
@@ -1260,7 +1255,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		UpstreamModel:                 openAIWSDifferentModel(resultRequestModel, resultUpstreamModel),
 		UpstreamResponseModel:         relayResult.ResponseModel,
 		UpstreamResponseModelConflict: relayResult.ResponseModelConflict,
-		ServiceTier:                   usageMeta.serviceTier.Load(),
+		ServiceTier:                   openai.ResolveServiceTier(relayResult.ServiceTier, usageMeta.serviceTier.Load()),
 		ReasoningEffort:               usageMeta.reasoningEffort.Load(),
 		Stream:                        true,
 		OpenAIWSMode:                  true,

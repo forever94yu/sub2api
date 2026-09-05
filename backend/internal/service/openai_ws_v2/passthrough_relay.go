@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	openai "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	coderws "github.com/coder/websocket"
 	"github.com/tidwall/gjson"
 )
@@ -33,6 +34,7 @@ type RelayResult struct {
 	RequestModel            string
 	ResponseModel           string
 	ResponseModelConflict   bool
+	ServiceTier             *string
 	Usage                   Usage
 	RequestID               string
 	TerminalEventType       string
@@ -47,6 +49,7 @@ type RelayTurnResult struct {
 	RequestModel          string
 	ResponseModel         string
 	ResponseModelConflict bool
+	ServiceTier           *string
 	Usage                 Usage
 	RequestID             string
 	TerminalEventType     string
@@ -100,6 +103,7 @@ type relayState struct {
 	lastResponseID    string
 	lastResponseModel string
 	responseConflict  bool
+	lastServiceTier   *string
 	terminalEventType string
 	firstTokenMs      *int
 	turnTimingByID    map[string]*relayTurnTiming
@@ -121,6 +125,7 @@ type observedUpstreamEvent struct {
 	startedAt        time.Time
 	responseModel    string
 	responseConflict bool
+	serviceTier      *string
 	duration         time.Duration
 	firstToken       *int
 }
@@ -131,6 +136,7 @@ type relayTurnTiming struct {
 	firstResponseModel    string
 	terminalResponseModel string
 	responseModelConflict bool
+	serviceTierObserver   openai.ServiceTierObserver
 }
 
 func Relay(
@@ -735,6 +741,9 @@ func observeUpstreamMessage(
 		turnTiming = state.activeTurn
 	}
 	observeRelayTurnResponseModel(turnTiming, firstRelayResponseModel(message), isTerminalEvent(eventType))
+	if turnTiming != nil {
+		turnTiming.serviceTierObserver.Observe(message, eventType)
+	}
 	if !isTerminalEvent(eventType) {
 		return observed
 	}
@@ -745,8 +754,10 @@ func observeUpstreamMessage(
 		if turnTiming, ok := openAIWSRelayDeleteTurnTiming(state, responseID); ok {
 			observed.responseModel = relayTurnResponseModel(&turnTiming)
 			observed.responseConflict = turnTiming.responseModelConflict
+			observed.serviceTier = turnTiming.serviceTierObserver.Resolve(nil)
 			state.lastResponseModel = observed.responseModel
 			state.responseConflict = observed.responseConflict
+			state.lastServiceTier = observed.serviceTier
 			duration := now.Sub(turnTiming.startAt)
 			if duration < 0 {
 				duration = 0
@@ -779,6 +790,7 @@ func emitTurnComplete(
 		RequestModel:          requestModel,
 		ResponseModel:         observed.responseModel,
 		ResponseModelConflict: observed.responseConflict,
+		ServiceTier:           observed.serviceTier,
 		Usage:                 observed.usage,
 		RequestID:             responseID,
 		TerminalEventType:     observed.eventType,
@@ -1010,6 +1022,7 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	result.RequestModel = state.currentRequestModel()
 	result.ResponseModel = state.lastResponseModel
 	result.ResponseModelConflict = state.responseConflict
+	result.ServiceTier = state.lastServiceTier
 	result.Usage = state.usage
 	result.RequestID = state.lastResponseID
 	result.TerminalEventType = state.terminalEventType

@@ -23,7 +23,35 @@ func TestShouldAutoInjectPromptCacheKeyForCompat(t *testing.T) {
 	require.True(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-5.3"))
 	require.True(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-5.3-codex"))
 	require.True(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-5.3-codex-spark"))
+	for _, model := range []string{
+		"gpt-6-astra",
+		"GPT-6-ASTRA",
+		"openai/gpt-6-astra",
+		"gpt-image-proxy/gpt-6-astra",
+	} {
+		t.Run(model, func(t *testing.T) {
+			require.True(t, shouldAutoInjectPromptCacheKeyForCompat(model))
+		})
+	}
+	for _, model := range []string{
+		"gpt-6-astra-preview",
+		"gpt-6-astra-20260905",
+		"gpt_6_astra",
+		"vendor-gpt-6-build-astra-opus",
+	} {
+		t.Run(model, func(t *testing.T) {
+			require.False(t, shouldAutoInjectPromptCacheKeyForCompat(model))
+		})
+	}
 	require.False(t, shouldAutoInjectPromptCacheKeyForCompat("gpt-4o"))
+}
+
+func TestOpenAICompatContinuationEnabledForAstraAPIKeyAccounts(t *testing.T) {
+	apiKeyAccount := &Account{Type: AccountTypeAPIKey}
+	require.True(t, openAICompatContinuationEnabled(apiKeyAccount, "gpt-6-astra"))
+	require.True(t, openAICompatContinuationEnabled(apiKeyAccount, "openai/gpt-6-astra"))
+	require.False(t, openAICompatContinuationEnabled(apiKeyAccount, "gpt-6-astra-preview"))
+	require.False(t, openAICompatContinuationEnabled(&Account{Type: AccountTypeOAuth}, "gpt-6-astra"))
 }
 
 func TestDeriveCompatPromptCacheKey_StableAcrossLaterTurns(t *testing.T) {

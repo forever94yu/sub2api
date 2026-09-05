@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -137,6 +138,71 @@ func TestPassthroughIngressReportsTurnStartedBeforeAfterTurnWithoutBeforeTurn(t 
 	require.Equal(t, expectedTurnStartedAt, gotEvents[0].startedAt, "TurnStarted 必须携带入口冻结的首轮开始时刻")
 	require.Equal(t, "AfterTurn", gotEvents[1].name)
 	require.Equal(t, gotEvents[0].turn, gotEvents[1].turn, "TurnStarted 后应提交同一 turn 的 AfterTurn")
+}
+
+func TestPassthroughIngressServiceTierIsTurnLocalWithRequestFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	controlCtx, cancelControl := context.WithCancelCause(context.Background())
+	defer cancelControl(context.Canceled)
+
+	upstream := newStagedPassthroughConn()
+	results := make(chan *OpenAIForwardResult, 2)
+	hooks := &OpenAIWSIngressHooks{
+		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
+			if turnErr == nil && result != nil {
+				results <- result
+			}
+		},
+	}
+	server, serverErr := startPassthroughHookRecordingServer(
+		t,
+		controlCtx,
+		newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream),
+		passthroughLifecycleAccount(),
+		hooks,
+	)
+	defer server.Close()
+
+	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
+	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	cancelDial()
+	require.NoError(t, err)
+	defer func() { _ = clientConn.CloseNow() }()
+
+	writeTurn := func(payload string) {
+		writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
+		err := clientConn.Write(writeCtx, coderws.MessageText, []byte(payload))
+		cancelWrite()
+		require.NoError(t, err)
+		require.Equal(t, "response.create", gjson.GetBytes(requirePassthroughUpstreamWrite(t, upstream, 3*time.Second), "type").String())
+	}
+	readTurn := func(responseID string) {
+		frame, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
+		require.NoError(t, err)
+		require.Equal(t, responseID, gjson.GetBytes(frame, "response.id").String())
+	}
+
+	writeTurn(`{"type":"response.create","model":"gpt-5.1","service_tier":"auto"}`)
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_tier_first","service_tier":"fast","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	readTurn("resp_tier_first")
+
+	writeTurn(`{"type":"response.create","model":"gpt-5.1","service_tier":"flex","previous_response_id":"resp_tier_first"}`)
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_tier_second","service_tier":"turbo","usage":{"input_tokens":1,"output_tokens":1}}}`)
+	readTurn("resp_tier_second")
+
+	first := <-results
+	require.NotNil(t, first.ServiceTier)
+	require.Equal(t, "priority", *first.ServiceTier, "fast response tier must override auto request tier")
+	second := <-results
+	require.NotNil(t, second.ServiceTier)
+	require.Equal(t, "flex", *second.ServiceTier, "invalid response tier must fall back to this turn's request tier")
+
+	require.NoError(t, clientConn.Close(coderws.StatusNormalClosure, "done"))
+	select {
+	case <-serverErr:
+	case <-time.After(3 * time.Second):
+		t.Fatal("passthrough service-tier session did not exit")
+	}
 }
 
 func TestPassthroughIngressFreezesSubsequentTurnBeforeRequestPolicy(t *testing.T) {

@@ -28,14 +28,13 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		Include: []string{"reasoning.encrypted_content"},
 	}
 
-	// Reasoning models (gpt-5.x) served via the Responses API do not accept
+	// Reasoning models served via the Responses API do not accept
 	// sampling parameters. Sending temperature or top_p causes a 400
 	// "Unsupported parameter" error, so we only forward them for non-reasoning
 	// models.
-	if !isReasoningModel(req.Model) {
-		out.Temperature = req.Temperature
-		out.TopP = req.TopP
-	}
+	out.Temperature = req.Temperature
+	out.TopP = req.TopP
+	NormalizeResponsesSamplingForModel(out, req.Model)
 
 	storeFalse := false
 	out.Store = &storeFalse
@@ -465,12 +464,37 @@ func boolPtr(v bool) *bool {
 	return &v
 }
 
+// NormalizeResponsesSamplingForModel removes sampling parameters that the
+// final upstream Responses model does not accept. Callers that map models
+// after conversion should invoke this again with the resolved upstream model.
+func NormalizeResponsesSamplingForModel(req *ResponsesRequest, model string) {
+	if req == nil || ResponsesModelSupportsSamplingParameters(model) {
+		return
+	}
+	req.Temperature = nil
+	req.TopP = nil
+}
+
+// ResponsesModelSupportsSamplingParameters reports whether temperature and
+// top_p may be forwarded to the selected Responses model.
+func ResponsesModelSupportsSamplingParameters(model string) bool {
+	return !isReasoningModel(model)
+}
+
 // isReasoningModel reports whether model is a reasoning model that does not
-// support sampling parameters (temperature, top_p) via the Responses API.
-// All gpt-5.x models are reasoning-only; the Responses API returns
-// "Unsupported parameter: temperature" if these fields are present.
+// support sampling parameters (temperature, top_p). GPT-5 behavior remains
+// prefix-based for compatibility; Astra is intentionally exact, with only a
+// provider path prefix accepted, so unsupported Astra variants are not folded
+// into the official model.
 func isReasoningModel(model string) bool {
-	return strings.HasPrefix(model, "gpt-5")
+	if strings.HasPrefix(model, "gpt-5") {
+		return true
+	}
+	model = strings.ToLower(strings.TrimSpace(model))
+	if idx := strings.LastIndex(model, "/"); idx >= 0 {
+		model = strings.TrimSpace(model[idx+1:])
+	}
+	return model == "gpt-6-astra"
 }
 
 // normalizeToolParameters ensures the tool parameter schema is valid for

@@ -3,6 +3,7 @@ package service
 import (
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -21,9 +22,10 @@ const (
 // where a conflict flag makes billing fall back to the baseline model
 // (see responseModelBillingDeclaration).
 type upstreamResponseModelObserver struct {
-	first    string
-	terminal string
-	conflict bool
+	first       string
+	terminal    string
+	conflict    bool
+	serviceTier openai.ServiceTierObserver
 }
 
 func (o *upstreamResponseModelObserver) Observe(model string, terminal bool) {
@@ -57,8 +59,16 @@ func normalizeObservedUpstreamResponseModel(model string) string {
 }
 
 func (o *upstreamResponseModelObserver) ObserveOpenAI(payload []byte, eventType string) {
+	o.serviceTier.Observe(payload, eventType)
 	model := firstValidTrimmedGJSONModel(payload, "response.model", "model")
 	o.Observe(model, isUpstreamResponseModelTerminalEvent(eventType))
+}
+
+func (o *upstreamResponseModelObserver) OpenAIServiceTier(fallback *string) *string {
+	if o == nil {
+		return openai.ResolveServiceTier(nil, fallback)
+	}
+	return o.serviceTier.Resolve(fallback)
 }
 
 func (o *upstreamResponseModelObserver) ObserveAnthropic(payload []byte) {

@@ -771,7 +771,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		UpstreamResponseModelConflict: responseModelObserver.Conflict(),
 		ImageCount:                    imageCounter.Count(),
 		ImageOutputSizes:              imageCounter.Sizes(),
-		ServiceTier:                   extractOpenAIServiceTier(reqBody),
+		ServiceTier:                   responseModelObserver.OpenAIServiceTier(extractOpenAIServiceTier(reqBody)),
 		ReasoningEffort:               extractOpenAIReasoningEffort(reqBody, mappedModel, originalModel),
 		Stream:                        reqStream,
 		OpenAIWSMode:                  true,
