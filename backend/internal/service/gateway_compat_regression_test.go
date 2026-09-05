@@ -415,3 +415,54 @@ func TestGatewayCompatibilityRegressionCanceledClientWithoutMoreEvents(t *testin
 		})
 	}
 }
+
+func TestGatewayCompatibilityRegressionReadTimeoutFailsOverOnlyBeforeOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, responses := range []bool{false, true} {
+		for _, phase := range []string{"before_output", "after_output", "disconnected"} {
+			name := "cc/" + phase
+			if responses {
+				name = "responses/" + phase
+			}
+			t.Run(name, func(t *testing.T) {
+				payload := ""
+				if phase != "before_output" {
+					payload = compatRegressionAnthropicStart
+				}
+				body := &compatRegressionBlockedBody{initial: strings.NewReader(payload), readStarted: make(chan struct{}), closed: make(chan struct{})}
+				defer func() { _ = body.Close() }()
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				if phase == "disconnected" {
+					c.Writer = &openAIChatFailingWriter{ResponseWriter: c.Writer, failAfter: 0}
+				}
+				svc := &GatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamDataIntervalTimeout: 1}}}
+				resp := &http.Response{Header: http.Header{}, Body: body}
+				var result *ForwardResult
+				var err error
+				if responses {
+					result, err = svc.handleResponsesStreamingResponse(resp, c, "claude", "claude", nil, time.Now(), apicompat.ResponsesClientToolMapping{})
+				} else {
+					result, err = svc.handleCCStreamingFromAnthropic(resp, c, "claude", "claude", nil, time.Now(), true)
+				}
+				if err == nil {
+					t.Fatal("upstream read timeout must fail")
+				}
+				var failover *UpstreamFailoverError
+				if got := errors.As(err, &failover); got != (phase == "before_output") {
+					t.Fatalf("phase=%s failover=%v err=%v", phase, got, err)
+				}
+				if failover != nil && failover.StatusCode != http.StatusBadGateway {
+					t.Fatalf("upstream read timeout must be classified as 502: %+v", failover)
+				}
+				if result == nil || result.ClientDisconnect != (phase == "disconnected") {
+					t.Fatalf("incorrect disconnect result: %+v", result)
+				}
+				if strings.Contains(rec.Body.String(), `"status":"completed"`) || strings.Contains(rec.Body.String(), "[DONE]") {
+					t.Fatalf("timed out stream synthesized success: %s", rec.Body.String())
+				}
+			})
+		}
+	}
+}

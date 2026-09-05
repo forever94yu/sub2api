@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -16,6 +17,8 @@ import (
 )
 
 const anthropicCompatDrainTimeout = 30 * time.Second
+
+var errAnthropicCompatReadTimeout = errors.New("upstream stream read timed out")
 
 func anthropicCompatClientGone(c *gin.Context) bool {
 	return c != nil && c.Request != nil && c.Request.Context().Err() != nil
@@ -51,12 +54,18 @@ func (s *GatewayService) consumeAnthropicCompatStream(
 	})
 	drainTimer.Stop()
 	var drainOnce sync.Once
-	startDrain := func() { drainOnce.Do(func() { drainTimer.Reset(drainTimeout) }) }
+	var draining atomic.Bool
+	startDrain := func() {
+		drainOnce.Do(func() {
+			draining.Store(true)
+			drainTimer.Reset(drainTimeout)
+		})
+	}
 
 	var readTimer *time.Timer
 	if readTimeout > 0 {
 		readTimer = time.AfterFunc(readTimeout, func() {
-			cancelRead(errors.New("upstream stream read timed out"))
+			cancelRead(errAnthropicCompatReadTimeout)
 		})
 		readTimer.Stop()
 	}
@@ -117,6 +126,9 @@ func (s *GatewayService) consumeAnthropicCompatStream(
 			readTimer.Stop()
 		}
 		if cause := context.Cause(readCtx); cause != nil {
+			if errors.Is(cause, errAnthropicCompatReadTimeout) && !draining.Load() && requestCtx.Err() == nil {
+				return newAnthropicCompatStreamFailure(resp, "Upstream stream read timed out")
+			}
 			return cause
 		}
 		if !more {
