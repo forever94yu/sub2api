@@ -60,6 +60,13 @@ describe('ModelWhitelistSelector', () => {
     copyToClipboard.mockClear()
   })
 
+  it('shows GPT-6 Astra for OpenAI accounts', async () => {
+    const wrapper = mountSelector()
+    await wrapper.get('div.cursor-pointer').trigger('click')
+
+    expect(findModelRow(wrapper, 'gpt-6-astra')).toBeDefined()
+  })
+
   it('copies a model ID without selecting the model', async () => {
     const wrapper = mountSelector()
     await wrapper.get('div.cursor-pointer').trigger('click')
