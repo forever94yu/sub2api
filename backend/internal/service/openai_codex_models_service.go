@@ -520,7 +520,7 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 	}
 	upstreamBody := body
 	if request.useAPIKeyUpstream {
-		body = convertOpenAIModelListToCodexManifest(body)
+		body = convertOpenAIModelListToCodexManifestForAccount(body, request.credentialAccount)
 	}
 	if err := validateCodexModelsManifestEnvelope(body); err != nil {
 		return nil, &codexModelsManifestUpstreamError{
@@ -533,7 +533,7 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 			retryable: true,
 		}
 	}
-	body, err = adjustCodexModelsManifest(body, request.useAPIKeyUpstream)
+	body, err = adjustCodexModelsManifestForAccount(body, request.useAPIKeyUpstream, request.credentialAccount)
 	if err != nil {
 		return nil, &codexModelsManifestUpstreamError{
 			err: infraerrors.Newf(
@@ -571,6 +571,10 @@ var apiKeyCodexModelsWithoutResponsesLite = map[string]struct{}{
 // affected custom API key clients from selecting Responses Lite, which omits
 // web.run. Unaffected manifests retain their original representation.
 func adjustCodexModelsManifest(body []byte, useAPIKeyUpstream bool) ([]byte, error) {
+	return adjustCodexModelsManifestForAccount(body, useAPIKeyUpstream, nil)
+}
+
+func adjustCodexModelsManifestForAccount(body []byte, useAPIKeyUpstream bool, account *Account) ([]byte, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, fmt.Errorf("decode JSON object: %w", err)
@@ -598,7 +602,15 @@ func adjustCodexModelsManifest(body []byte, useAPIKeyUpstream bool) ([]byte, err
 				return nil, fmt.Errorf("adjust model %q: %w", slug, err)
 			}
 		}
-		if _, targeted := apiKeyCodexModelsWithoutResponsesLite[slug]; useAPIKeyUpstream && targeted {
+		_, targeted := apiKeyCodexModelsWithoutResponsesLite[slug]
+		if useAPIKeyUpstream && !targeted {
+			target := slug
+			if account != nil {
+				target = account.GetMappedModel(slug)
+			}
+			targeted = strings.EqualFold(strings.TrimSpace(lastOpenAIModelSegment(target)), openAIGPT6AstraModelID)
+		}
+		if useAPIKeyUpstream && targeted {
 			var useResponsesLite bool
 			if err := json.Unmarshal(model["use_responses_lite"], &useResponsesLite); err == nil && useResponsesLite {
 				model["use_responses_lite"] = json.RawMessage("false")
@@ -681,6 +693,10 @@ func fillCodexModelRequiredFields(model map[string]json.RawMessage) bool {
 // carry a models field, are not a standard list, or yield no usable model IDs
 // are returned unchanged so validation reports the original payload.
 func convertOpenAIModelListToCodexManifest(body []byte) []byte {
+	return convertOpenAIModelListToCodexManifestForAccount(body, nil)
+}
+
+func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Account) []byte {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil || envelope == nil {
 		return body
@@ -692,21 +708,31 @@ func convertOpenAIModelListToCodexManifest(body []byte) []byte {
 	if !ok {
 		return body
 	}
-	var entries []struct {
-		ID string `json:"id"`
-	}
+	var entries []map[string]json.RawMessage
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return body
 	}
 	models := make([]map[string]json.RawMessage, 0, len(entries))
 	for _, entry := range entries {
-		id := strings.TrimSpace(entry.ID)
+		var id string
+		if err := json.Unmarshal(entry["id"], &id); err != nil {
+			continue
+		}
+		id = strings.TrimSpace(id)
 		if id == "" {
 			continue
 		}
 		slug, _ := json.Marshal(id)
 		model := map[string]json.RawMessage{"slug": slug}
 		fillCodexModelRequiredFields(model)
+		target := id
+		if account != nil {
+			target = account.GetMappedModel(id)
+		}
+		if strings.EqualFold(strings.TrimSpace(lastOpenAIModelSegment(target)), openAIGPT6AstraModelID) {
+			copyValidatedAstraCodexCoreFields(model, entry)
+			copyValidatedAstraCodexToolFields(model, entry)
+		}
 		models = append(models, model)
 	}
 	if len(models) == 0 {
@@ -717,6 +743,55 @@ func convertOpenAIModelListToCodexManifest(body []byte) []byte {
 		return body
 	}
 	return converted
+}
+
+var astraCodexProviderToolFields = []string{
+	"supports_search_tool", "apply_patch_tool_type", "comp_hash", "tool_mode", "use_responses_lite",
+}
+
+func copyValidatedAstraCodexCoreFields(dst, src map[string]json.RawMessage) {
+	for _, field := range []string{"context_window", "max_context_window", "input_modalities"} {
+		value := bytes.TrimSpace(src[field])
+		if len(value) == 0 {
+			continue
+		}
+		if !bytes.Equal(value, []byte("null")) {
+			if field == "input_modalities" {
+				var modalities []string
+				if json.Unmarshal(value, &modalities) != nil {
+					continue
+				}
+			} else {
+				var contextWindow int64
+				if json.Unmarshal(value, &contextWindow) != nil || contextWindow <= 0 {
+					continue
+				}
+			}
+		}
+		dst[field] = append(json.RawMessage(nil), value...)
+	}
+}
+
+func copyValidatedAstraCodexToolFields(dst, src map[string]json.RawMessage) {
+	for _, field := range astraCodexProviderToolFields {
+		value := bytes.TrimSpace(src[field])
+		if len(value) == 0 {
+			continue
+		}
+		if !bytes.Equal(value, []byte("null")) {
+			if field == "supports_search_tool" || field == "use_responses_lite" {
+				if !bytes.Equal(value, []byte("true")) && !bytes.Equal(value, []byte("false")) {
+					continue
+				}
+			} else {
+				var text string
+				if json.Unmarshal(value, &text) != nil {
+					continue
+				}
+			}
+		}
+		dst[field] = append(json.RawMessage(nil), value...)
+	}
 }
 
 func validateCodexModelsManifestEnvelope(body []byte) error {
@@ -745,6 +820,19 @@ func validateCodexModelsManifestEnvelope(body []byte) error {
 func buildCodexModelsManifestCacheKey(request codexModelsManifestRequest) string {
 	hasher := sha256.New()
 	_, _ = fmt.Fprintf(hasher, "%d\n%d\n%s\n%s\n", request.accountID, request.credentialAccountID, request.proxyURL, request.url)
+	if request.credentialAccount != nil {
+		mapping := request.credentialAccount.GetModelMapping()
+		modelNames := make([]string, 0, len(mapping))
+		for modelName := range mapping {
+			modelNames = append(modelNames, modelName)
+		}
+		sort.Strings(modelNames)
+		_, _ = fmt.Fprintf(hasher, "model_mapping:%d\n", len(modelNames))
+		for _, modelName := range modelNames {
+			mappedModel := mapping[modelName]
+			_, _ = fmt.Fprintf(hasher, "%d:%s%d:%s\n", len(modelName), modelName, len(mappedModel), mappedModel)
+		}
+	}
 	headerNames := make([]string, 0, len(request.headers))
 	for name := range request.headers {
 		headerNames = append(headerNames, name)

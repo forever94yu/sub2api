@@ -553,6 +553,40 @@ describe('UseKeyModal', () => {
     expect(models['gpt-5.6'].name).toBe('GPT-5.6 (Sol)')
   })
 
+  it('exports Astra with five native reasoning variants in OpenCode config', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: { template: '<span />' }
+        }
+      }
+    })
+
+    const opencodeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.opencode')
+    )
+    expect(opencodeTab).toBeDefined()
+    await opencodeTab!.trigger('click')
+
+    const parsed = JSON.parse(wrapper.get('pre code').text())
+    const models = parsed.provider.openai.models
+    expect(models['gpt-6-astra']).toEqual({
+      name: 'GPT-6-Astra',
+      limit: { context: 1050000, output: 128000 },
+      options: { store: false },
+      variants: { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
+    })
+    expect(models['gpt-6']).toBeUndefined()
+    expect(parsed.provider.openai.options.baseURL).toBe('https://example.com/v1')
+  })
+
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -113,9 +114,18 @@ func TestFetchCodexModelsManifestAstraCapabilities(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(astraUpstreamManifest), &original))
 			require.NoError(t, json.Unmarshal(manifest.Body, &adjusted))
 			for field, value := range original.Models[0] {
-				if field != "display_name" && field != "supported_reasoning_levels" && field != "multi_agent_reasoning_effort" {
+				if field != "display_name" && field != "supported_reasoning_levels" && field != "multi_agent_reasoning_effort" &&
+					(!apiKey || field != "use_responses_lite") {
 					require.JSONEq(t, string(value), string(astra[field]), "preserve Astra field %s", field)
 				}
+			}
+			require.JSONEq(t, `1000000`, string(astra["context_window"]), "preserve explicit context window")
+			require.JSONEq(t, `1050000`, string(astra["max_context_window"]), "fill missing max context window")
+			require.JSONEq(t, `["text","image"]`, string(astra["input_modalities"]), "fill missing input modalities")
+			if apiKey {
+				require.JSONEq(t, `false`, string(astra["use_responses_lite"]))
+			} else {
+				require.JSONEq(t, `true`, string(astra["use_responses_lite"]), "OAuth must preserve Responses Lite")
 			}
 			for i := 1; i < len(original.Models); i++ {
 				before, err := json.Marshal(original.Models[i])
@@ -135,11 +145,24 @@ func TestFetchCodexModelsManifestAstraCapabilities(t *testing.T) {
 }
 
 func TestFetchCodexModelsManifestAstraStandardListCapabilities(t *testing.T) {
-	const body = `{"object":"list","data":[{"id":"gpt-6-astra","object":"model"},{"id":"gpt-5.5","object":"model"}]}`
+	const body = `{"object":"list","data":[{
+		"id":"gpt-6-astra","object":"model","supports_search_tool":false,
+		"apply_patch_tool_type":null,"comp_hash":"provider-hash","tool_mode":"provider-mode",
+		"use_responses_lite":true
+	},{"id":"gpt-5.5","object":"model","supports_search_tool":true,
+		"context_window":250000,"max_context_window":250000,"input_modalities":["text"]}]}`
 	s, account := newAstraCodexManifestTestService(t, true, body, `"astra-list"`)
 	manifest, err := s.FetchCodexModelsManifest(context.Background(), account, "0.145.0", "")
 	require.NoError(t, err)
 	astra := requireAstraCodexCapabilities(t, manifest.Body, false)
+	require.JSONEq(t, `1050000`, string(astra["context_window"]))
+	require.JSONEq(t, `1050000`, string(astra["max_context_window"]))
+	require.JSONEq(t, `["text","image"]`, string(astra["input_modalities"]))
+	require.JSONEq(t, `false`, string(astra["supports_search_tool"]))
+	require.JSONEq(t, `null`, string(astra["apply_patch_tool_type"]))
+	require.JSONEq(t, `"provider-hash"`, string(astra["comp_hash"]))
+	require.JSONEq(t, `"provider-mode"`, string(astra["tool_mode"]))
+	require.JSONEq(t, `false`, string(astra["use_responses_lite"]), "API-key Astra must not advertise Responses Lite")
 	// These non-optional fields are required by the Codex ModelInfo wire schema.
 	require.JSONEq(t, `"unified_exec"`, string(astra["shell_type"]))
 	require.JSONEq(t, `"list"`, string(astra["visibility"]))
@@ -156,6 +179,177 @@ func TestFetchCodexModelsManifestAstraStandardListCapabilities(t *testing.T) {
 	require.NoError(t, json.Unmarshal(manifest.Body, &envelope))
 	require.Len(t, envelope.Models, 2)
 	requireSynthesizedCodexModelSchema(t, envelope.Models[1], "gpt-5.5")
+	require.NotContains(t, string(envelope.Models[1]), "supports_search_tool",
+		"Astra-only synthesis must not copy tool capabilities onto sibling models")
+	for _, field := range []string{"context_window", "max_context_window", "input_modalities"} {
+		require.NotContains(t, string(envelope.Models[1]), field,
+			"Astra-only synthesis must not copy %s onto sibling models", field)
+	}
+}
+
+func TestFetchCodexModelsManifestAstraPreservesExplicitNullMetadata(t *testing.T) {
+	const body = `{"models":[{"slug":"gpt-6-astra","context_window":null,"max_context_window":null,"input_modalities":null,"supports_search_tool":false}]}`
+	s, account := newAstraCodexManifestTestService(t, false, body, `"astra-null"`)
+	manifest, err := s.FetchCodexModelsManifest(context.Background(), account, "0.145.0", "")
+	require.NoError(t, err)
+	astra := requireAstraCodexCapabilities(t, manifest.Body, false)
+	for _, field := range []string{"context_window", "max_context_window", "input_modalities"} {
+		require.JSONEq(t, `null`, string(astra[field]), "preserve explicit %s", field)
+	}
+	require.JSONEq(t, `false`, string(astra["supports_search_tool"]))
+}
+
+func TestConvertOpenAIModelListToCodexManifestRejectsInvalidAstraToolFields(t *testing.T) {
+	body := []byte(`{"object":"list","data":[{
+		"id":"gpt-6-astra","supports_search_tool":"yes","apply_patch_tool_type":{},
+		"comp_hash":17,"tool_mode":[],"use_responses_lite":"true"
+	}]}`)
+	converted := convertOpenAIModelListToCodexManifest(body)
+	var envelope struct {
+		Models []map[string]json.RawMessage `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal(converted, &envelope))
+	require.Len(t, envelope.Models, 1)
+	for _, field := range []string{"supports_search_tool", "apply_patch_tool_type", "comp_hash", "tool_mode", "use_responses_lite"} {
+		require.NotContains(t, envelope.Models[0], field, "invalid %s must not be advertised", field)
+	}
+}
+
+func TestFetchCodexModelsManifestStandardListPreservesValidatedAstraCoreFields(t *testing.T) {
+	tests := []struct {
+		name           string
+		modelID        string
+		mappedModel    string
+		fields         string
+		wantContext    string
+		wantMaxContext string
+		wantModalities string
+	}{
+		{
+			name:           "custom limits and text only",
+			modelID:        "gpt-6-astra",
+			fields:         `"context_window":200000,"max_context_window":180000,"input_modalities":["text"]`,
+			wantContext:    `200000`,
+			wantMaxContext: `180000`,
+			wantModalities: `["text"]`,
+		},
+		{
+			name:           "explicit nulls",
+			modelID:        "gpt-6-astra",
+			fields:         `"context_window":null,"max_context_window":null,"input_modalities":null`,
+			wantContext:    `null`,
+			wantMaxContext: `null`,
+			wantModalities: `null`,
+		},
+		{
+			name:           "malformed values use missing field defaults",
+			modelID:        "gpt-6-astra",
+			fields:         `"context_window":"200000","max_context_window":false,"input_modalities":["text",17]`,
+			wantContext:    `1050000`,
+			wantMaxContext: `1050000`,
+			wantModalities: `["text","image"]`,
+		},
+		{
+			name:           "account mapped Astra alias",
+			modelID:        "custom-astra",
+			mappedModel:    "openai/gpt-6-astra",
+			fields:         `"context_window":300000,"max_context_window":280000,"input_modalities":["text"]`,
+			wantContext:    `300000`,
+			wantMaxContext: `280000`,
+			wantModalities: `["text"]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"object":"list","data":[{"id":%q,%s}]}`, tt.modelID, tt.fields)
+			s, account := newAstraCodexManifestTestService(t, true, body, `"astra-core"`)
+			if tt.mappedModel != "" {
+				account.Credentials["model_mapping"] = map[string]any{tt.modelID: tt.mappedModel}
+			}
+			manifest, err := s.FetchCodexModelsManifest(context.Background(), account, "0.145.0", "")
+			require.NoError(t, err)
+			var envelope struct {
+				Models []map[string]json.RawMessage `json:"models"`
+			}
+			require.NoError(t, json.Unmarshal(manifest.Body, &envelope))
+			require.Len(t, envelope.Models, 1)
+			model := envelope.Models[0]
+			require.JSONEq(t, fmt.Sprintf("%q", tt.modelID), string(model["slug"]))
+			require.JSONEq(t, tt.wantContext, string(model["context_window"]))
+			require.JSONEq(t, tt.wantMaxContext, string(model["max_context_window"]))
+			require.JSONEq(t, tt.wantModalities, string(model["input_modalities"]))
+		})
+	}
+}
+
+func TestFetchCodexModelsManifestAPIKeyDisablesResponsesLiteForExactAstraTargets(t *testing.T) {
+	tests := []struct {
+		name     string
+		slug     string
+		mapped   string
+		wantLite bool
+	}{
+		{name: "canonical", slug: "gpt-6-astra"},
+		{name: "provider prefixed", slug: "openai/gpt-6-astra"},
+		{name: "mapped custom alias", slug: "custom-astra", mapped: "openai/gpt-6-astra"},
+		{name: "preview is not Astra", slug: "gpt-6-astra-preview", wantLite: true},
+		{name: "dated alias is not Astra", slug: "gpt-6-astra-20260905", wantLite: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{"models": []map[string]any{{"slug": tt.slug, "use_responses_lite": true}}})
+			require.NoError(t, err)
+			s, account := newAstraCodexManifestTestService(t, true, string(body), `"astra-lite"`)
+			if tt.mapped != "" {
+				account.Credentials["model_mapping"] = map[string]any{tt.slug: tt.mapped}
+			}
+			manifest, err := s.FetchCodexModelsManifest(context.Background(), account, "0.145.0", "")
+			require.NoError(t, err)
+			var envelope struct {
+				Models []map[string]json.RawMessage `json:"models"`
+			}
+			require.NoError(t, json.Unmarshal(manifest.Body, &envelope))
+			require.Len(t, envelope.Models, 1)
+			require.JSONEq(t, fmt.Sprintf("%t", tt.wantLite), string(envelope.Models[0]["use_responses_lite"]))
+		})
+	}
+}
+
+func TestFetchCodexModelsManifestCacheTracksAstraAliasMapping(t *testing.T) {
+	const upstreamBody = `{"models":[{"slug":"custom-astra","use_responses_lite":true}]}`
+	const upstreamETag = `"custom-astra-manifest"`
+	requests := 0
+	upstream := &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		requests++
+		require.Empty(t, req.Header.Get("If-None-Match"), "each mapping representation needs its own upstream cache entry")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Etag": []string{upstreamETag}},
+			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+		}, nil
+	}}
+	s := newCodexModelsAPIKeyTestService(upstream)
+	account := newCodexModelsAPIKeyTestAccount("https://astra.example/v1")
+
+	fetchLite := func() bool {
+		manifest, err := s.FetchCodexModelsManifest(context.Background(), account, "0.145.0", "")
+		require.NoError(t, err)
+		var envelope struct {
+			Models []map[string]json.RawMessage `json:"models"`
+		}
+		require.NoError(t, json.Unmarshal(manifest.Body, &envelope))
+		require.Len(t, envelope.Models, 1)
+		var lite bool
+		require.NoError(t, json.Unmarshal(envelope.Models[0]["use_responses_lite"], &lite))
+		return lite
+	}
+
+	require.True(t, fetchLite(), "unmapped custom model preserves the provider value")
+	account.Credentials["model_mapping"] = map[string]any{"custom-astra": "openai/gpt-6-astra"}
+	require.False(t, fetchLite(), "mapping the same public model to Astra must not reuse the unmapped representation")
+	delete(account.Credentials, "model_mapping")
+	require.True(t, fetchLite(), "removing the mapping restores the original cached representation")
+	require.Equal(t, 2, requests, "each distinct mapping representation is fetched once")
 }
 
 func TestFetchCodexModelsManifestAstraInstructionSources(t *testing.T) {
@@ -213,6 +407,7 @@ func TestFetchCodexModelsManifestAstraCanonicalRepresentationPreservesETag(t *te
 	const body = ` {"models":[{
 		"slug":"gpt-6-astra","display_name":"GPT-6-Astra","multi_agent_reasoning_effort":"max",
 		"base_instructions":"Provider model instructions",
+		"context_window":1050000,"max_context_window":1050000,"input_modalities":["text","image"],
 		"default_reasoning_level":"low","shell_type":"unified_exec","visibility":"list",
 		"supported_in_api":true,"priority":1,"support_verbosity":true,
 		"truncation_policy":{"mode":"tokens","limit":10000},"experimental_supported_tools":[],

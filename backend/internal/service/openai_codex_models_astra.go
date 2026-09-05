@@ -12,6 +12,17 @@ import (
 func adjustAstraCodexModel(model map[string]json.RawMessage) (bool, error) {
 	changed := fillCodexModelRequiredFields(model)
 	for field, value := range map[string]string{
+		"context_window":     `1050000`,
+		"max_context_window": `1050000`,
+		"input_modalities":   `["text","image"]`,
+	} {
+		if _, exists := model[field]; exists {
+			continue
+		}
+		model[field] = json.RawMessage(value)
+		changed = true
+	}
+	for field, value := range map[string]string{
 		"display_name":                 "GPT-6-Astra",
 		"multi_agent_reasoning_effort": "max",
 	} {
