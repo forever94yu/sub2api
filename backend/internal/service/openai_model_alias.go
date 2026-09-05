@@ -2,6 +2,8 @@ package service
 
 import "strings"
 
+const openAIGPT6AstraModelID = "gpt-6-astra"
+
 func lastOpenAIModelSegment(model string) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -50,6 +52,14 @@ func canonicalizeOpenAIModelAliasSpelling(model string) string {
 }
 
 func normalizeKnownOpenAICodexModel(model string) string {
+	modelID := strings.ToLower(strings.TrimSpace(lastOpenAIModelSegment(model)))
+	if modelID == openAIGPT6AstraModelID {
+		return openAIGPT6AstraModelID
+	}
+	if isUnsupportedOpenAIGPT6AstraModel(model) {
+		return ""
+	}
+
 	normalized := canonicalizeOpenAIModelAliasSpelling(model)
 	if normalized == "" {
 		return ""
@@ -106,6 +116,33 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	}
 }
 
+func isUnsupportedOpenAIGPT6AstraModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(lastOpenAIModelSegment(model)))
+	if normalized == "" || normalized == openAIGPT6AstraModelID {
+		return false
+	}
+	normalized = strings.ReplaceAll(normalized, "_", "-")
+	normalized = strings.Join(strings.Fields(normalized), "-")
+	for strings.Contains(normalized, "--") {
+		normalized = strings.ReplaceAll(normalized, "--", "-")
+	}
+	if strings.Contains(normalized, openAIGPT6AstraModelID) {
+		return true
+	}
+
+	parts := strings.Split(normalized, "-")
+	baseParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if (len(part) == 8 && isNumeric(part)) || strings.Contains(part, ":") {
+			continue
+		}
+		baseParts = append(baseParts, part)
+	}
+	base := strings.Join(baseParts, "-")
+	return strings.Contains(base, openAIGPT6AstraModelID) ||
+		(strings.Contains(base, "gpt-6") && strings.Contains(base, "astra"))
+}
+
 // isOpenAIGPT56Model 判断是否 GPT-5.6 系列模型；入参可为原始模型名
 // （含大小写/路径/后缀变体）或已归一化的基名，两者均能正确识别。
 func isOpenAIGPT56Model(model string) bool {
@@ -122,6 +159,11 @@ func isOpenAIGPT56Model(model string) bool {
 		}
 	}
 	return false
+}
+
+func supportsOpenAIMaxReasoningEffort(model string) bool {
+	modelID := strings.ToLower(strings.TrimSpace(lastOpenAIModelSegment(model)))
+	return isOpenAIGPT56Model(model) || modelID == openAIGPT6AstraModelID
 }
 
 func appendUsageBillingModelCandidate(candidates []string, seen map[string]struct{}, model string) []string {
@@ -143,6 +185,9 @@ func appendUsageBillingModelCandidate(candidates []string, seen map[string]struc
 	}
 
 	add(trimmed)
+	if isUnsupportedOpenAIGPT6AstraModel(trimmed) {
+		return candidates
+	}
 	if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
 		add(canonical)
 	}

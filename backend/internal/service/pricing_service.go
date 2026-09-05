@@ -35,6 +35,23 @@ var (
 		Mode:                            "chat",
 		SupportsPromptCaching:           true,
 	}
+	openAIGPT6AstraFallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:                   10e-06,
+		InputCostPerTokenPriority:           20e-06,
+		OutputCostPerToken:                  50e-06,
+		OutputCostPerTokenPriority:          100e-06,
+		CacheCreationInputTokenCost:         12.5e-06,
+		CacheCreationInputTokenCostPriority: 25e-06,
+		CacheReadInputTokenCost:             1e-06,
+		CacheReadInputTokenCostPriority:     2e-06,
+		LongContextInputTokenThreshold:      openAIGPT54LongContextInputThreshold,
+		LongContextInputCostMultiplier:      openAIGPT54LongContextInputMultiplier,
+		LongContextOutputCostMultiplier:     openAIGPT54LongContextOutputMultiplier,
+		SupportsServiceTier:                 true,
+		LiteLLMProvider:                     "openai",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
 	openAIGPT56SolFallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken:                   5e-06,
 		InputCostPerTokenPriority:           1e-05,
@@ -650,6 +667,9 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 
 	// 标准化模型名称（同时兼容 "models/xxx"、VertexAI 资源名等前缀）
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
+	if isUnsupportedOpenAIGPT6AstraModel(modelLower) {
+		return nil
+	}
 	lookupCandidates := s.buildModelLookupCandidates(modelLower)
 
 	// 1~3. 确定性识别（精确名 / 已知拼写变体 / 去掉日期版本后缀）
@@ -723,6 +743,9 @@ func (s *PricingService) GetIdentifiedModelPricing(modelName string) *LiteLLMMod
 
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
 	if modelLower == "" {
+		return nil
+	}
+	if isUnsupportedOpenAIGPT6AstraModel(modelLower) {
 		return nil
 	}
 	return s.lookupIdentifiedModelPricingLocked(s.buildModelLookupCandidates(modelLower))
@@ -958,6 +981,12 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 // 5. gpt-5.4* -> 业务静态兜底价
 // 6. 最终回退到 DefaultTestModel (gpt-5.1-codex)
 func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
+	if model == "gpt-6-astra" {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-6-astra(static)"))
+		return openAIGPT6AstraFallbackPricing
+	}
+
 	if strings.HasPrefix(model, "gpt-5.3-codex-spark") {
 		if pricing, ok := s.pricingData["gpt-5.1-codex"]; ok {
 			logger.LegacyPrintf("service.pricing", "[Pricing][SparkBilling] %s -> %s billing", model, "gpt-5.1-codex")

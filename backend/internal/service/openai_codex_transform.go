@@ -11,6 +11,7 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6-astra":          "gpt-6-astra",
 	"gpt-5.6-sol":          "gpt-5.6-sol",
 	"gpt-5.6-terra":        "gpt-5.6-terra",
 	"gpt-5.6-luna":         "gpt-5.6-luna",
@@ -574,11 +575,16 @@ func normalizeKnownCodexModel(model string) (string, bool) {
 	if model == "" {
 		return "", false
 	}
+	modelID := lastOpenAIModelSegment(model)
+	if strings.EqualFold(strings.TrimSpace(modelID), openAIGPT6AstraModelID) {
+		return openAIGPT6AstraModelID, true
+	}
+	if isUnsupportedOpenAIGPT6AstraModel(modelID) {
+		return "", false
+	}
 	if isOpenAIImageGenerationModel(model) {
 		return model, true
 	}
-
-	modelID := lastOpenAIModelSegment(model)
 
 	if normalized := canonicalizeOpenAIModelAliasSpelling(modelID); normalized != "" {
 		modelID = normalized
