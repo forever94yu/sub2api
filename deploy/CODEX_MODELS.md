@@ -15,12 +15,14 @@ A server upgrade alone cannot repair that client's already loaded catalog.
 Run the exporter on the computer running Codex, with Python 3.9 or newer:
 
 ```sh
-python deploy/export-codex-models.py --base-url https://your-sub2api.example/v1
+python deploy/export-codex-models.py --base-url https://your-sub2api.example/v1 --output "~/.codex/codex-models.json"
 ```
 
 The exporter uses `OPENAI_API_KEY` from the environment, or the existing
 `~/.codex/auth.json` file. `--auth-file` and `--output` accept alternate paths.
 Use a Sub2API key assigned to an OpenAI or compatible Composite group.
+The output path above matches the web interface's "Use Key" configuration.
+Generate the catalog before enabling the setting; Codex reads this file at startup.
 
 After a successful export, add the printed `model_catalog_json` setting to the
 top level of the active Codex `config.toml`, before any `[section]`. Keep your
@@ -30,7 +32,7 @@ existing provider and model settings. For Astra Ultra, the relevant settings are
 model = "gpt-6-astra"
 model_reasoning_effort = "ultra"
 # Use the actual absolute path printed by the exporter:
-model_catalog_json = "/home/your-user/.codex/sub2api-models.json"
+model_catalog_json = "/home/your-user/.codex/codex-models.json"
 ```
 
 Fully exit and restart Codex Desktop or the CLI process. The catalog is loaded

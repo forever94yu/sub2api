@@ -720,6 +720,7 @@ model = "gpt-5.5"
 review_model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
+model_catalog_json = "~/.codex/codex-models.json"
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
@@ -983,6 +984,7 @@ model = "gpt-5.5"
 review_model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
+model_catalog_json = "~/.codex/codex-models.json"
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
