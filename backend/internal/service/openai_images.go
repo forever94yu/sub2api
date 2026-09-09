@@ -897,7 +897,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 	}
 	c.Data(resp.StatusCode, contentType, body)
 
-	usage, _ := extractOpenAIUsageFromJSONBytes(body)
+	usage, _ := extractOpenAIImagesUsageFromJSONBytes(body)
 	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), nil
 }
 
@@ -1143,11 +1143,33 @@ func extractOpenAIImagesBillableCountFromJSONBytes(body []byte) int {
 	return 0
 }
 
+func extractOpenAIImagesUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
+	usage, ok := extractOpenAIUsageFromJSONBytes(body)
+	if !ok || usage.ImageOutputTokens != 0 {
+		return usage, ok
+	}
+	// Native Images may omit the optional output breakdown; unlike Responses,
+	// these endpoints return image output, so the aggregate is image usage.
+	for _, path := range []string{"usage", "response.usage", "data.usage", "data.response.usage"} {
+		value := gjson.GetBytes(body, path)
+		if !value.IsObject() {
+			continue
+		}
+		if !value.Get("output_tokens_details").Exists() && !value.Get("completion_tokens_details").Exists() {
+			if tokens, valid := boundedJSONNonNegativeInt(value.Get("output_tokens")); valid {
+				usage.ImageOutputTokens = tokens
+			}
+		}
+		break
+	}
+	return usage, true
+}
+
 func mergeOpenAIUsage(dst *OpenAIUsage, body []byte) {
 	if dst == nil {
 		return
 	}
-	if parsed, ok := extractOpenAIUsageFromJSONBytes(body); ok {
+	if parsed, ok := extractOpenAIImagesUsageFromJSONBytes(body); ok {
 		if parsed.InputTokens > 0 {
 			dst.InputTokens = parsed.InputTokens
 		}

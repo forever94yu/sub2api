@@ -1092,11 +1092,20 @@ func openAIImagesToolUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if !inputOK || !outputOK || !imageOutputOK {
 		return OpenAIUsage{}, false
 	}
-	return OpenAIUsage{
+	usage := OpenAIUsage{
 		InputTokens:       inputTokens,
 		OutputTokens:      outputTokens,
 		ImageOutputTokens: imageOutputTokens,
-	}, true
+	}
+	// Only tool-local details belong to these totals; response-wide counters
+	// can include the mainline model and must not be carried into image billing.
+	if tokens, valid := boundedJSONNonNegativeInt(value.Get("input_tokens_details.image_tokens")); valid && tokens <= inputTokens {
+		usage.ImageInputTokens = tokens
+	}
+	if tokens, valid := boundedJSONNonNegativeInt(value.Get("input_tokens_details.cached_tokens")); valid && tokens <= inputTokens {
+		usage.CacheReadInputTokens = tokens
+	}
+	return usage, true
 }
 
 // boundedJSONNonNegativeInt parses integral JSON exponent notation without

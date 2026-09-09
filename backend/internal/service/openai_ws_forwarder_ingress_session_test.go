@@ -976,7 +976,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 
 	upstreamConn := &openAIWSCaptureConn{
 		events: [][]byte{
-			[]byte(`{"type":"response.completed","response":{"id":"resp_passthrough_turn_1","model":"gpt-5.1","service_tier":"default","output":[{"id":"ig_passthrough_1","type":"image_generation_call","status":"generating","result":"final-image"}],"usage":{"input_tokens":2,"output_tokens":3}}}`),
+			[]byte(`{"type":"response.completed","response":{"id":"resp_passthrough_turn_1","model":"gpt-5.1","service_tier":"default","output":[{"id":"ig_passthrough_1","type":"image_generation_call","status":"generating","result":"final-image"}],"usage":{"input_tokens":2,"output_tokens":3},"tool_usage":{"image_gen":{"input_tokens_details":{"image_tokens":1},"output_tokens_details":{"image_tokens":2}}}}}`),
 		},
 	}
 	captureDialer := &openAIWSCaptureDialer{conn: upstreamConn}
@@ -1090,6 +1090,8 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 		require.True(t, result.OpenAIWSMode)
 		require.Equal(t, 2, result.Usage.InputTokens)
 		require.Equal(t, 3, result.Usage.OutputTokens)
+		require.Equal(t, 1, result.Usage.ImageInputTokens)
+		require.Equal(t, 2, result.Usage.ImageOutputTokens)
 		require.NotNil(t, result.ServiceTier)
 		require.Equal(t, "default", *result.ServiceTier, "passthrough billing must use the upstream tier")
 		require.NotNil(t, result.ReasoningEffort)

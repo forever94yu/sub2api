@@ -218,6 +218,35 @@ func TestRelay_BasicRelayAndUsage(t *testing.T) {
 	require.JSONEq(t, `{"type":"response.completed","response":{"id":"resp_123","usage":{"input_tokens":7,"output_tokens":3,"input_tokens_details":{"cached_tokens":2}}}}`, string(clientWrites[0].payload))
 }
 
+func TestRelay_ImageUsagePerTurnAndAggregate(t *testing.T) {
+	t.Parallel()
+
+	clientConn := newPassthroughTestFrameConn(nil, false)
+	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
+		{msgType: coderws.MessageText, payload: []byte(`{"type":"response.completed","response":{"id":"resp_image","usage":{"input_tokens":100,"output_tokens":60},"tool_usage":{"image_gen":{"input_tokens_details":{"image_tokens":80},"output_tokens_details":{"image_tokens":50}}}}}`)},
+		{msgType: coderws.MessageText, payload: []byte(`{"type":"response.completed","response":{"id":"resp_explicit","usage":{"input_tokens":30,"output_tokens":15,"input_tokens_details":{"image_tokens":20},"output_tokens_details":{"image_tokens":10}},"tool_usage":{"image_gen":{"input_tokens_details":{"image_tokens":800},"output_tokens_details":{"image_tokens":500}}}}}`)},
+		{msgType: coderws.MessageText, payload: []byte(`{"type":"response.completed","response":{"id":"resp_text","usage":{"input_tokens":3,"output_tokens":4}}}`)},
+	}, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var turns []RelayTurnResult
+	result, relayExit := Relay(ctx, clientConn, upstreamConn,
+		[]byte(`{"type":"response.create","model":"gpt-5.4","tools":[{"type":"image_generation","model":"gpt-image-2.5-flare"}],"input":[]}`),
+		RelayOptions{OnTurnComplete: func(turn RelayTurnResult) { turns = append(turns, turn) }})
+	require.Nil(t, relayExit)
+	require.Len(t, turns, 3)
+	require.Equal(t, 80, turns[0].Usage.ImageInputTokens)
+	require.Equal(t, 50, turns[0].Usage.ImageOutputTokens)
+	require.Equal(t, 20, turns[1].Usage.ImageInputTokens, "response usage takes precedence over hosted tool breakdowns")
+	require.Equal(t, 10, turns[1].Usage.ImageOutputTokens, "response usage takes precedence over hosted tool breakdowns")
+	require.Zero(t, turns[2].Usage.ImageInputTokens, "a text turn must not reuse prior image usage")
+	require.Zero(t, turns[2].Usage.ImageOutputTokens, "a text turn must not reuse prior image usage")
+	require.Equal(t, 100, result.Usage.ImageInputTokens)
+	require.Equal(t, 60, result.Usage.ImageOutputTokens)
+	require.Equal(t, 133, result.Usage.InputTokens)
+	require.Equal(t, 79, result.Usage.OutputTokens)
+}
+
 func TestRelay_FunctionCallOutputBytesPreserved(t *testing.T) {
 	t.Parallel()
 
