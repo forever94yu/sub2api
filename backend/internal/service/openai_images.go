@@ -40,6 +40,7 @@ const (
 	openAIImageMaxDownloadBytes    = 20 << 20 // 20MB per image download
 	openAIImageMaxUploadPartSize   = 20 << 20 // 20MB per multipart upload part
 	openAIImagesResponsesMainModel = "gpt-5.4-mini"
+	openAIDefaultImageModel        = "gpt-image-2.5-sunburst"
 )
 
 type OpenAIImagesCapability string
@@ -451,7 +452,7 @@ func applyOpenAIImagesDefaults(req *OpenAIImagesRequest) {
 		req.Model = strings.TrimSpace(req.Model)
 		return
 	}
-	req.Model = "gpt-image-2"
+	req.Model = openAIDefaultImageModel
 }
 
 func isOpenAIImageGenerationModel(model string) bool {

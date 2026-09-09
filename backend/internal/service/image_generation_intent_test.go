@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestIsImageGenerationIntent(t *testing.T) {
@@ -282,6 +283,64 @@ func TestResolveOpenAIResponsesImageBillingConfigToolModelWins(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "gpt-image-2", imageModel)
 	require.Equal(t, "2K", imageSize)
+}
+
+func TestResolveOpenAIResponsesImageBillingConfigDefaultsMissingToolModelToSunburst(t *testing.T) {
+	for _, resolve := range []struct {
+		name string
+		call func() (OpenAIResponsesImageBillingConfig, error)
+	}{
+		{
+			name: "map",
+			call: func() (OpenAIResponsesImageBillingConfig, error) {
+				return resolveOpenAIResponsesImageBillingConfigDetailed(map[string]any{
+					"model": "gpt-5.4",
+					"tools": []any{map[string]any{"type": "image_generation"}},
+				}, "gpt-5.4")
+			},
+		},
+		{
+			name: "raw body",
+			call: func() (OpenAIResponsesImageBillingConfig, error) {
+				return resolveOpenAIResponsesImageBillingConfigDetailedFromBody(
+					[]byte(`{"model":"gpt-5.4","tools":[{"type":"image_generation"}]}`),
+					"gpt-5.4",
+				)
+			},
+		},
+	} {
+		t.Run(resolve.name, func(t *testing.T) {
+			cfg, err := resolve.call()
+			require.NoError(t, err)
+			require.Equal(t, "gpt-image-2.5-sunburst", cfg.Model)
+		})
+	}
+}
+
+func TestDefaultOpenAIResponsesImageGenerationToolModelsRaw(t *testing.T) {
+	t.Run("adds default to missing and blank models", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-5.4","tools":[{"type":"image_generation","quality":"max"},{"type":"web_search"},{"type":"image_generation","model":"  ","quality":"xhigh"}]}`)
+
+		updated, changed, err := defaultOpenAIResponsesImageGenerationToolModelsRaw(body)
+		require.NoError(t, err)
+		require.True(t, changed)
+		require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(updated, "tools.0.model").String())
+		require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(updated, "tools.2.model").String())
+		require.Equal(t, "max", gjson.GetBytes(updated, "tools.0.quality").String())
+		require.Equal(t, "xhigh", gjson.GetBytes(updated, "tools.2.quality").String())
+	})
+
+	t.Run("preserves explicit and non-image payload bytes", func(t *testing.T) {
+		for _, body := range [][]byte{
+			[]byte(`{ "model": "gpt-5.4", "tools": [{"type":"image_generation","model":"gpt-image-2.5-flare"}] }`),
+			[]byte(`{ "model": "gpt-5.4", "tools": [{"type":"web_search"}] }`),
+		} {
+			updated, changed, err := defaultOpenAIResponsesImageGenerationToolModelsRaw(body)
+			require.NoError(t, err)
+			require.False(t, changed)
+			require.Equal(t, body, updated)
+		}
+	})
 }
 
 func TestResolveOpenAIResponsesImageBillingConfigFromBodyIgnoresUnrelatedLargeInput(t *testing.T) {

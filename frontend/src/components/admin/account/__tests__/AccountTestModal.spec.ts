@@ -220,4 +220,45 @@ describe('AccountTestModal', () => {
       mode: 'compact'
     })
   })
+
+  it.each([
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.5-flare'
+  ])('OpenAI image test submits %s and renders its preview', async (modelID) => {
+    getAvailableModels.mockResolvedValue([
+      { id: modelID, display_name: modelID }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        `data: {"type":"test_start","model":"${modelID}"}\n`,
+        'data: {"type":"image","image_url":"data:image/png;base64,QUJD","mime_type":"image/png"}\n',
+        'data: {"type":"test_complete","success":true}\n'
+      ])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 42,
+      name: 'OpenAI Image Test',
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect(wrapper.find('textarea.textarea-stub').exists()).toBe(true)
+    ;(wrapper.vm as any).testPrompt = 'draw a sunlit mountain lake'
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toEqual({
+      model_id: modelID,
+      prompt: 'draw a sunlit mountain lake',
+      mode: 'default'
+    })
+    expect(wrapper.get('img[alt="test-image-1"]').attributes('src')).toBe(
+      'data:image/png;base64,QUJD'
+    )
+  })
 })

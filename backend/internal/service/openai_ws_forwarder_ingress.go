@@ -339,6 +339,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			normalized = stripped
 			logOpenAIWSModeInfo("ingress_ws_codex_spark_image_tool_stripped account_id=%d", account.ID)
 		}
+		if openAIRequestBodyImageGenerationToolNeedsNormalization(normalized) {
+			defaulted, changed, defaultErr := defaultOpenAIResponsesImageGenerationToolModelsRaw(normalized)
+			if defaultErr != nil {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", defaultErr)
+			}
+			if changed {
+				normalized = defaulted
+			}
+		}
 		imageIntent := IsImageGenerationIntentForPlatform(openAIResponsesEndpoint, originalModel, normalized, account.Platform)
 		if imageIntent && !imageGenerationAllowed {
 			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, ImageGenerationPermissionMessage(), nil)

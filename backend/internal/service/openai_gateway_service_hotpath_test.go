@@ -716,7 +716,8 @@ func TestOpenAIGatewayService_Forward_CodexBridgeInjectionSetsImageBilling(t *te
 	require.NotNil(t, result)
 	require.Equal(t, 1, result.ImageCount)
 	require.Equal(t, "2K", result.ImageSize)
-	require.Equal(t, "gpt-image-2", result.BillingModel)
+	require.Equal(t, "gpt-image-2.5-sunburst", result.BillingModel)
+	require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation").model`).String())
 }
 
 func TestOpenAIGatewayService_Forward_HTTPDeletesPreviousResponseIDWhenPresent(t *testing.T) {

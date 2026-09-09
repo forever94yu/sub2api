@@ -652,6 +652,25 @@ func TestNormalizeOpenAIResponsesImageGenerationTools_RewritesLegacyFields(t *te
 	require.False(t, hasFormat)
 	_, hasCompression := first["compression"]
 	require.False(t, hasCompression)
+	require.Equal(t, "gpt-image-2.5-sunburst", first["model"])
+}
+
+func TestNormalizeOpenAIResponsesImageGenerationTools_PreservesExplicitModels(t *testing.T) {
+	for _, model := range []string{"gpt-image-1", "gpt-image-2", "gpt-image-2.5-flare"} {
+		t.Run(model, func(t *testing.T) {
+			reqBody := map[string]any{
+				"tools": []any{map[string]any{"type": "image_generation", "model": model}},
+			}
+
+			require.False(t, normalizeOpenAIResponsesImageGenerationTools(reqBody))
+			tools, ok := reqBody["tools"].([]any)
+			require.True(t, ok)
+			require.Len(t, tools, 1)
+			tool, ok := tools[0].(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, model, tool["model"])
+		})
+	}
 }
 
 func TestEnsureOpenAIResponsesImageGenerationTool_NoTools(t *testing.T) {
@@ -670,6 +689,7 @@ func TestEnsureOpenAIResponsesImageGenerationTool_NoTools(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "image_generation", tool["type"])
 	require.Equal(t, "png", tool["output_format"])
+	require.Equal(t, "gpt-image-2.5-sunburst", tool["model"])
 }
 
 func TestEnsureOpenAIResponsesImageGenerationTool_SkipsSpark(t *testing.T) {
@@ -1218,6 +1238,46 @@ func TestNormalizeOpenAIResponsesImageOnlyModel_PreservesExistingImageTool(t *te
 	tool, ok := tools[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "gpt-image-1.5", tool["model"])
+}
+
+func TestResponsesImageToolPipelinePreservesExplicitOuterImageModel(t *testing.T) {
+	for _, model := range []string{
+		"gpt-image-2",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.5-flare-2026-09-08",
+	} {
+		for _, existingTool := range []bool{false, true} {
+			name := model + "/no_tool"
+			if existingTool {
+				name = model + "/empty_tool_model"
+			}
+			t.Run(name, func(t *testing.T) {
+				reqBody := map[string]any{
+					"model": model,
+					"input": "draw a cat",
+				}
+				if existingTool {
+					reqBody["tools"] = []any{
+						map[string]any{"type": "image_generation", "model": "", "quality": "max"},
+					}
+				}
+
+				ensureOpenAIResponsesImageGenerationTool(reqBody)
+				normalizeOpenAIResponsesImageGenerationTools(reqBody)
+				require.True(t, normalizeOpenAIResponsesImageOnlyModel(reqBody))
+				require.Equal(t, openAIImagesResponsesMainModel, reqBody["model"])
+				tools, ok := reqBody["tools"].([]any)
+				require.True(t, ok)
+				require.Len(t, tools, 1)
+				tool, ok := tools[0].(map[string]any)
+				require.True(t, ok)
+				require.Equal(t, model, tool["model"])
+				if existingTool {
+					require.Equal(t, "max", tool["quality"])
+				}
+			})
+		}
+	}
 }
 
 func TestValidateOpenAIResponsesImageModel_RejectsImageOnlyModel(t *testing.T) {

@@ -161,13 +161,13 @@ func TestOpenAIGatewayServiceForward_ExplicitImageToolWorksWithBridgeDisabled(t 
 		resp: &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_explicit_image","model":"gpt-5.4","usage":{"input_tokens":2,"output_tokens":1}}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_explicit_image","model":"gpt-5.4","output":[{"id":"ig_default","type":"image_generation_call","result":"final-image"}],"usage":{"input_tokens":2,"output_tokens":1}}`)),
 		},
 	}
 	svc := newOpenAIImageGenerationControlTestService(upstream)
 	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.98.0")
 	account := newOpenAIImageGenerationControlTestAccount()
-	body := []byte(`{"model":"gpt-5.4","input":"draw","stream":false,"tools":[{"type":"image_generation","format":"jpeg"}]}`)
+	body := []byte(`{"model":"gpt-5.4","input":"draw","stream":false,"tools":[{"type":"image_generation","output_format":"jpeg","quality":"xhigh"}]}`)
 
 	result, err := svc.Forward(context.Background(), c, account, body)
 
@@ -177,6 +177,9 @@ func TestOpenAIGatewayServiceForward_ExplicitImageToolWorksWithBridgeDisabled(t 
 	require.True(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation")`).Exists())
 	require.Equal(t, "jpeg", gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation").output_format`).String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation").format`).Exists())
+	require.Equal(t, "xhigh", gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation").quality`).String())
+	require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(upstream.lastBody, `tools.#(type=="image_generation").model`).String())
+	require.Equal(t, "gpt-image-2.5-sunburst", result.BillingModel)
 	instructions := gjson.GetBytes(upstream.lastBody, "instructions").String()
 	require.NotContains(t, instructions, "image_generation")
 }

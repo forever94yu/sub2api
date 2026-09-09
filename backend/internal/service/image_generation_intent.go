@@ -1,9 +1,11 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const (
@@ -293,14 +295,46 @@ func openAIRequestBodyImageGenerationToolNeedsNormalization(body []byte) bool {
 		if openAIJSONString(item.Get("type")) != "image_generation" {
 			return true
 		}
-		// 只有旧字段需要迁移时才进入 map 修改，纯计费读取保持 raw 路径。
-		if item.Get("format").Exists() || item.Get("compression").Exists() {
+		// Legacy fields and a missing image model require outbound normalization.
+		if item.Get("format").Exists() || item.Get("compression").Exists() ||
+			strings.TrimSpace(item.Get("model").String()) == "" {
 			needsNormalization = true
 			return false
 		}
 		return true
 	})
 	return needsNormalization
+}
+
+func defaultOpenAIResponsesImageGenerationToolModelsRaw(body []byte) ([]byte, bool, error) {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return body, false, nil
+	}
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return body, false, nil
+	}
+
+	updated := body
+	changed := false
+	var updateErr error
+	index := 0
+	tools.ForEach(func(_, item gjson.Result) bool {
+		if openAIJSONString(item.Get("type")) == "image_generation" &&
+			strings.TrimSpace(item.Get("model").String()) == "" {
+			updated, updateErr = sjson.SetBytes(updated, fmt.Sprintf("tools.%d.model", index), openAIDefaultImageModel)
+			if updateErr != nil {
+				return false
+			}
+			changed = true
+		}
+		index++
+		return true
+	})
+	if updateErr != nil {
+		return nil, false, fmt.Errorf("set default image generation tool model: %w", updateErr)
+	}
+	return updated, changed, nil
 }
 
 func openAIJSONToolChoiceSelectsImageGeneration(choice gjson.Result) bool {
@@ -446,7 +480,7 @@ func resolveOpenAIResponsesImageBillingConfigDetailed(reqBody map[string]any, fa
 		}
 	}
 	if imageModel == "" && hasImageTool {
-		imageModel = "gpt-image-2"
+		imageModel = openAIDefaultImageModel
 	}
 	if imageModel == "" {
 		imageModel = strings.TrimSpace(fallbackModel)
@@ -495,7 +529,7 @@ func resolveOpenAIResponsesImageBillingConfigDetailedFromBody(body []byte, fallb
 		}
 	}
 	if imageModel == "" && hasImageTool {
-		imageModel = "gpt-image-2"
+		imageModel = openAIDefaultImageModel
 	}
 	if imageModel == "" {
 		imageModel = strings.TrimSpace(fallbackModel)

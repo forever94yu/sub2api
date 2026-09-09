@@ -188,6 +188,27 @@ func TestStripCodexSparkImageGenerationToolFromRawPayload(t *testing.T) {
 	})
 }
 
+func TestOpenAIWSImageGenerationToolModelDefaultingRawPayload(t *testing.T) {
+	t.Run("defaults missing model", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","model":"gpt-5.5","tools":[{"type":"image_generation","quality":"max"}]}`)
+
+		updated, changed, err := defaultOpenAIResponsesImageGenerationToolModelsRaw(payload)
+		require.NoError(t, err)
+		require.True(t, changed)
+		require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(updated, "tools.0.model").String())
+		require.Equal(t, "max", gjson.GetBytes(updated, "tools.0.quality").String())
+	})
+
+	t.Run("preserves explicit snapshot model", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","model":"gpt-5.5","tools":[{"type":"image_generation","model":"gpt-image-2.5-flare-2026-09-08"}]}`)
+
+		updated, changed, err := defaultOpenAIResponsesImageGenerationToolModelsRaw(payload)
+		require.NoError(t, err)
+		require.False(t, changed)
+		require.Equal(t, payload, updated)
+	})
+}
+
 func TestStripOpenAIImageGenerationToolsFromRawPayload(t *testing.T) {
 	t.Run("flat image tool", func(t *testing.T) {
 		payload := []byte(`{

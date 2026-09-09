@@ -78,7 +78,7 @@ curl -i https://api.example.com/v1/images/generations/async \
   -H 'Authorization: Bearer sk-...' \
   -H 'Content-Type: application/json' \
   -d '{
-    "model": "gpt-image-1",
+    "model": "gpt-image-2.5-sunburst",
     "prompt": "A lighthouse during a winter storm",
     "size": "1536x1024"
   }'

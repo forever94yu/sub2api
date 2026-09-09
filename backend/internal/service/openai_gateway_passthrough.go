@@ -197,6 +197,17 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	if sanitized {
 		body = sanitizedBody
 	}
+	// Passthrough still applies the product-wide image default when the hosted
+	// tool omits its model; all explicit tool models and non-image bytes remain unchanged.
+	if !isOpenAIResponsesCompactPath(c) && openAIRequestBodyImageGenerationToolNeedsNormalization(body) {
+		defaultedBody, defaulted, defaultErr := defaultOpenAIResponsesImageGenerationToolModelsRaw(body)
+		if defaultErr != nil {
+			return nil, defaultErr
+		}
+		if defaulted {
+			body = defaultedBody
+		}
+	}
 
 	// Apply OpenAI fast policy to the passthrough body (filter/block by service_tier).
 	// 统一使用 upstream 视角的 model：透传路径下 body 已经过 compact 映射 +

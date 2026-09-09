@@ -67,6 +67,24 @@ describe('ModelWhitelistSelector', () => {
     expect(findModelRow(wrapper, 'gpt-6-astra')).toBeDefined()
   })
 
+  it('shows verified GPT Image 2.5 models with Sunburst preferred', async () => {
+    const wrapper = mountSelector()
+    await wrapper.get('div.cursor-pointer').trigger('click')
+
+    const image25Models = wrapper
+      .findAll('[data-testid="model-option"]')
+      .map(row => row.text().trim())
+      .filter(model => model.startsWith('gpt-image-2.5'))
+
+    expect(image25Models).toEqual([
+      'gpt-image-2.5-sunburst',
+      'gpt-image-2.5-sunburst-2026-09-08',
+      'gpt-image-2.5-flare',
+      'gpt-image-2.5-flare-2026-09-08'
+    ])
+    expect(image25Models).not.toContain('gpt-image-2.5')
+  })
+
   it('copies a model ID without selecting the model', async () => {
     const wrapper = mountSelector()
     await wrapper.get('div.cursor-pointer').trigger('click')

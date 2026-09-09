@@ -799,6 +799,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	require.Len(t, captureConn.writes, 3)
 	nonLitePayload := requestToJSONString(captureConn.writes[0])
 	require.True(t, gjson.Get(nonLitePayload, `tools.#(type=="image_generation")`).Exists())
+	require.Equal(t, "gpt-image-2.5-sunburst", gjson.Get(nonLitePayload, `tools.#(type=="image_generation").model`).String())
 	require.Equal(t, "png", gjson.Get(nonLitePayload, `tools.#(type=="image_generation").output_format`).String())
 	require.Equal(t, "auto", gjson.Get(nonLitePayload, "tool_choice").String())
 	require.Contains(t, gjson.Get(nonLitePayload, "instructions").String(), "image_generation")

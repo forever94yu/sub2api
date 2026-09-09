@@ -65,6 +65,67 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_JSON(t *testing.T) {
 	require.False(t, parsed.Multipart)
 }
 
+func TestOpenAIGatewayServiceParseOpenAIImagesRequest_DefaultsToSunburst(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, path := range []string{
+		"/v1/images/generations",
+		"/v1/images/generations/async",
+	} {
+		t.Run(path, func(t *testing.T) {
+			body := []byte(`{"prompt":"draw a cat","quality":"xhigh","partial_images":3,"background":"transparent","output_format":"webp"}`)
+			req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = req
+
+			parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body)
+			require.NoError(t, err)
+			require.Equal(t, "gpt-image-2.5-sunburst", parsed.Model)
+			require.False(t, parsed.ExplicitModel)
+			require.Equal(t, "xhigh", parsed.Quality)
+			require.NotNil(t, parsed.PartialImages)
+			require.Equal(t, 3, *parsed.PartialImages)
+			require.Equal(t, "transparent", parsed.Background)
+			require.Equal(t, "webp", parsed.OutputFormat)
+
+			responsesBody, err := buildOpenAIImagesResponsesRequest(parsed, parsed.Model)
+			require.NoError(t, err)
+			require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(responsesBody, "model").String())
+			require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(responsesBody, "tools.0.model").String())
+			require.Equal(t, "xhigh", gjson.GetBytes(responsesBody, "tools.0.quality").String())
+			require.Equal(t, int64(3), gjson.GetBytes(responsesBody, "tools.0.partial_images").Int())
+			require.Equal(t, "transparent", gjson.GetBytes(responsesBody, "tools.0.background").String())
+			require.Equal(t, "webp", gjson.GetBytes(responsesBody, "tools.0.output_format").String())
+		})
+	}
+}
+
+func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEditDefaultsToSunburst(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("prompt", "replace background"))
+	require.NoError(t, writer.WriteField("quality", "max"))
+	part, err := writer.CreateFormFile("image", "source.png")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("fake-image-bytes"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/edits/async", bytes.NewReader(body.Bytes()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = req
+
+	parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, "gpt-image-2.5-sunburst", parsed.Model)
+	require.False(t, parsed.ExplicitModel)
+	require.Equal(t, "max", parsed.Quality)
+}
+
 func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEdit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -304,7 +365,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_PromptOnlyDefaultsRemainBa
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 	require.NoError(t, err)
 	require.NotNil(t, parsed)
-	require.Equal(t, "gpt-image-2", parsed.Model)
+	require.Equal(t, "gpt-image-2.5-sunburst", parsed.Model)
 	require.Equal(t, OpenAIImagesCapabilityBasic, parsed.RequiredCapability)
 }
 
@@ -832,6 +893,35 @@ func TestParseOpenAIImagesSSEUsageBytes_ToolUsagePrecedenceAndFallback(t *testin
 	}
 }
 
+func TestParseOpenAIImagesSSEUsageBytes_DoesNotMixResponseAndToolCounters(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	payload := []byte(`{
+		"type":"response.completed",
+		"response":{
+			"usage":{
+				"input_tokens":1000,
+				"output_tokens":2500,
+				"input_tokens_details":{"cached_tokens":900,"image_tokens":700},
+				"output_tokens_details":{"image_tokens":2459}
+			},
+			"tool_usage":{"image_gen":{
+				"input_tokens":46,
+				"output_tokens":2459,
+				"output_tokens_details":{"image_tokens":2459}
+			}}
+		}
+	}`)
+
+	var got OpenAIUsage
+	svc.parseOpenAIImagesSSEUsageBytes(payload, &got)
+
+	require.Equal(t, OpenAIUsage{
+		InputTokens:       46,
+		OutputTokens:      2459,
+		ImageOutputTokens: 2459,
+	}, got)
+}
+
 func TestParseOpenAIImagesSSEUsageBytes_MalformedCompletedDoesNotOverrideUsage(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	var usage OpenAIUsage
@@ -1238,7 +1328,7 @@ func TestOpenAIImagesSSEClientErrorsAreNotRetryable(t *testing.T) {
 
 func TestOpenAIGatewayServiceForwardImages_APIKeyGenerationUsesConfiguredV1BaseURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","response_format":"b64_json"}`)
+	body := []byte(`{"prompt":"draw a cat","response_format":"b64_json"}`)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -1277,8 +1367,8 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyGenerationUsesConfiguredV1BaseU
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 1, result.ImageCount)
-	require.Equal(t, "gpt-image-2", result.Model)
-	require.Equal(t, "gpt-image-2", result.UpstreamModel)
+	require.Equal(t, "gpt-image-2.5-sunburst", result.Model)
+	require.Equal(t, "gpt-image-2.5-sunburst", result.UpstreamModel)
 
 	upstream, ok := svc.httpUpstream.(*httpUpstreamRecorder)
 	require.True(t, ok)
@@ -1286,7 +1376,7 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyGenerationUsesConfiguredV1BaseU
 	require.Equal(t, "https://image-upstream.example/v1/images/generations", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer test-api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "application/json", upstream.lastReq.Header.Get("Content-Type"))
-	require.Equal(t, "gpt-image-2", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "aGVsbG8=", gjson.Get(rec.Body.String(), "data.0.b64_json").String())
 }
