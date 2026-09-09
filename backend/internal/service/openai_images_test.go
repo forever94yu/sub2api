@@ -91,7 +91,7 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_DefaultsToSunburst(t *test
 
 			responsesBody, err := buildOpenAIImagesResponsesRequest(parsed, parsed.Model)
 			require.NoError(t, err)
-			require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(responsesBody, "model").String())
+			require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(responsesBody, "model").String())
 			require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(responsesBody, "tools.0.model").String())
 			require.Equal(t, "xhigh", gjson.GetBytes(responsesBody, "tools.0.quality").String())
 			require.Equal(t, int64(3), gjson.GetBytes(responsesBody, "tools.0.partial_images").Int())
@@ -837,7 +837,7 @@ func TestOpenAIGatewayServiceForwardImages_OAuthPassesNAndReturnsAllImages(t *te
 	require.Equal(t, "acct-123", upstream.lastReq.Header.Get("chatgpt-account-id"))
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
 
-	require.Equal(t, openAIImagesResponsesMainModel, gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.Equal(t, "image_generation", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
 	require.Equal(t, "generate", gjson.GetBytes(upstream.lastBody, "tools.0.action").String())

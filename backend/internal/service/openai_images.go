@@ -41,6 +41,9 @@ const (
 	openAIImageMaxUploadPartSize   = 20 << 20 // 20MB per multipart upload part
 	openAIImagesResponsesMainModel = "gpt-5.4-mini"
 	openAIDefaultImageModel        = "gpt-image-2.5-sunburst"
+
+	// ChatGPT sign-in no longer supports gpt-5.4-mini; API-key callers retain it.
+	openAIImagesOAuthResponsesMainModel = "gpt-5.6-luna"
 )
 
 type OpenAIImagesCapability string
