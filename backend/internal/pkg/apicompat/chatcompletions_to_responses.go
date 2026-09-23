@@ -40,7 +40,6 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 	// See isReasoningModel in anthropic_to_responses.go.
 	out.Temperature = req.Temperature
 	out.TopP = req.TopP
-	NormalizeResponsesSamplingForModel(out, req.Model)
 
 	storeFalse := false
 	out.Store = &storeFalse
@@ -68,6 +67,7 @@ func ChatCompletionsToResponses(req *ChatCompletionsRequest) (*ResponsesRequest,
 			Summary: "auto",
 		}
 	}
+	NormalizeResponsesSamplingForModel(out, req.Model)
 
 	if format := chatResponseFormatToResponsesTextFormat(req.ResponseFormat); len(format) > 0 {
 		if out.Text == nil {

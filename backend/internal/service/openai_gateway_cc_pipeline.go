@@ -17,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -179,6 +180,20 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	userAgent string,
 	grokCacheIdentity string,
 ) (*http.Response, error) {
+	if account.Platform == PlatformOpenAI {
+		body = normalizeOpenAIGPT6SamplingBody(body, gjson.GetBytes(body, "model").String())
+		if err := validateOpenAIGPT6ChatTools(body); err != nil {
+			switch {
+			case strings.HasSuffix(c.Request.URL.Path, "/messages"):
+				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			case strings.HasSuffix(c.Request.URL.Path, "/responses"):
+				writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			default:
+				writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			}
+			return nil, err
+		}
+	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()

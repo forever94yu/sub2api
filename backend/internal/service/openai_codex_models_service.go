@@ -595,6 +595,13 @@ func adjustCodexModelsManifestForAccount(body []byte, useAPIKeyUpstream bool, ac
 			continue
 		}
 		modelChanged := false
+		target := slug
+		if account != nil {
+			target = account.GetMappedModel(slug)
+		}
+		if isOpenAIGPT6SolLunaModel(target) {
+			modelChanged = fillGPT6SolLunaCodexModel(model, target)
+		}
 		if slug == "gpt-6-astra" {
 			var err error
 			modelChanged, err = adjustAstraCodexModel(model)
@@ -604,10 +611,6 @@ func adjustCodexModelsManifestForAccount(body []byte, useAPIKeyUpstream bool, ac
 		}
 		_, targeted := apiKeyCodexModelsWithoutResponsesLite[slug]
 		if useAPIKeyUpstream && !targeted {
-			target := slug
-			if account != nil {
-				target = account.GetMappedModel(slug)
-			}
 			targeted = strings.EqualFold(strings.TrimSpace(lastOpenAIModelSegment(target)), openAIGPT6AstraModelID)
 		}
 		if useAPIKeyUpstream && targeted {
@@ -724,11 +727,15 @@ func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Accou
 		}
 		slug, _ := json.Marshal(id)
 		model := map[string]json.RawMessage{"slug": slug}
-		fillCodexModelRequiredFields(model)
 		target := id
 		if account != nil {
 			target = account.GetMappedModel(id)
 		}
+		if isOpenAIGPT6SolLunaModel(target) {
+			copyValidatedGPT6SolLunaCodexFields(model, entry)
+			fillGPT6SolLunaCodexModel(model, target)
+		}
+		fillCodexModelRequiredFields(model)
 		if strings.EqualFold(strings.TrimSpace(lastOpenAIModelSegment(target)), openAIGPT6AstraModelID) {
 			copyValidatedAstraCodexCoreFields(model, entry)
 			copyValidatedAstraCodexToolFields(model, entry)

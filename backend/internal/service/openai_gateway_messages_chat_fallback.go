@@ -63,6 +63,11 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 	chatReq.Model = upstreamModel
 	chatReq.ReasoningEffort = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, chatReq.ReasoningEffort)
+	if isOpenAIGPT6SolLunaModel(upstreamModel) && strings.EqualFold(strings.TrimSpace(chatReq.ReasoningEffort), "none") {
+		// The client alias may identify an older reasoning model that caused the
+		// converter to strip sampling before the final Sol/Luna model was resolved.
+		chatReq.Temperature, chatReq.TopP = anthropicReq.Temperature, anthropicReq.TopP
+	}
 	chatReq.Stream = clientStream
 	if clientStream {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}

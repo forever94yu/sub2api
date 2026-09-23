@@ -67,6 +67,14 @@ describe('ModelWhitelistSelector', () => {
     expect(findModelRow(wrapper, 'gpt-6-astra')).toBeDefined()
   })
 
+  it.each(['gpt-6-sol', 'gpt-6-luna'])('selects %s for OpenAI accounts', async (model) => {
+    const wrapper = mountSelector()
+    await wrapper.get('div.cursor-pointer').trigger('click')
+    await findModelRow(wrapper, model).get('[data-testid="select-model"]').trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[[model]]])
+  })
+
   it('shows verified GPT Image 2.5 models with Sunburst preferred', async () => {
     const wrapper = mountSelector()
     await wrapper.get('div.cursor-pointer').trigger('click')

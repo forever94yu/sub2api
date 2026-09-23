@@ -587,6 +587,38 @@ describe('UseKeyModal', () => {
     expect(parsed.provider.openai.options.baseURL).toBe('https://example.com/v1')
   })
 
+  it('exports Sol and Luna with native reasoning and context limits', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: { template: '<span />' }
+        }
+      }
+    })
+    const opencodeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.opencode')
+    )
+    expect(opencodeTab).toBeDefined()
+    await opencodeTab!.trigger('click')
+
+    const models = JSON.parse(wrapper.get('pre code').text()).provider.openai.models
+    for (const [id, name] of [['gpt-6-sol', 'GPT-6 Sol'], ['gpt-6-luna', 'GPT-6 Luna']]) {
+      expect(models[id]).toEqual({
+        name,
+        limit: { context: 1050000, output: 128000 },
+        options: { store: false },
+        variants: { none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
+      })
+    }
+  })
+
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

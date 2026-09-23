@@ -4,6 +4,27 @@ import "strings"
 
 const openAIGPT6AstraModelID = "gpt-6-astra"
 
+// GPT-6 identities are exact: provider namespaces and case are harmless, but
+// dates, effort suffixes and spelling variants are not official model aliases.
+func normalizeKnownOpenAIGPT6Model(model string) string {
+	modelID := strings.ToLower(strings.TrimSpace(lastOpenAIModelSegment(model)))
+	switch modelID {
+	case openAIGPT6AstraModelID, "gpt-6-sol", "gpt-6-luna":
+		return modelID
+	default:
+		return ""
+	}
+}
+
+func isOpenAIGPT6Model(model string) bool {
+	return normalizeKnownOpenAIGPT6Model(model) != ""
+}
+
+func isOpenAIGPT6SolLunaModel(model string) bool {
+	modelID := normalizeKnownOpenAIGPT6Model(model)
+	return modelID == "gpt-6-sol" || modelID == "gpt-6-luna"
+}
+
 func lastOpenAIModelSegment(model string) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -52,11 +73,10 @@ func canonicalizeOpenAIModelAliasSpelling(model string) string {
 }
 
 func normalizeKnownOpenAICodexModel(model string) string {
-	modelID := strings.ToLower(strings.TrimSpace(lastOpenAIModelSegment(model)))
-	if modelID == openAIGPT6AstraModelID {
-		return openAIGPT6AstraModelID
+	if modelID := normalizeKnownOpenAIGPT6Model(model); modelID != "" {
+		return modelID
 	}
-	if isUnsupportedOpenAIGPT6AstraModel(model) {
+	if isUnsupportedOpenAIGPT6Model(model) {
 		return ""
 	}
 
@@ -116,9 +136,18 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	}
 }
 
-func isUnsupportedOpenAIGPT6AstraModel(model string) bool {
+func isUnsupportedOpenAIGPT6Model(model string) bool {
+	for _, modelID := range []string{openAIGPT6AstraModelID, "gpt-6-sol", "gpt-6-luna"} {
+		if isUnsupportedOpenAIGPT6NamedModel(model, modelID) {
+			return true
+		}
+	}
+	return false
+}
+
+func isUnsupportedOpenAIGPT6NamedModel(model, modelID string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(lastOpenAIModelSegment(model)))
-	if normalized == "" || normalized == openAIGPT6AstraModelID {
+	if normalized == "" || normalized == modelID {
 		return false
 	}
 	normalized = strings.ReplaceAll(normalized, "_", "-")
@@ -126,7 +155,7 @@ func isUnsupportedOpenAIGPT6AstraModel(model string) bool {
 	for strings.Contains(normalized, "--") {
 		normalized = strings.ReplaceAll(normalized, "--", "-")
 	}
-	if strings.Contains(normalized, openAIGPT6AstraModelID) {
+	if strings.Contains(normalized, modelID) {
 		return true
 	}
 
@@ -139,8 +168,8 @@ func isUnsupportedOpenAIGPT6AstraModel(model string) bool {
 		baseParts = append(baseParts, part)
 	}
 	base := strings.Join(baseParts, "-")
-	return strings.Contains(base, openAIGPT6AstraModelID) ||
-		(strings.Contains(base, "gpt-6") && strings.Contains(base, "astra"))
+	return strings.Contains(base, modelID) ||
+		(strings.Contains(base, "gpt-6") && strings.Contains(base, strings.TrimPrefix(modelID, "gpt-6-")))
 }
 
 // isOpenAIGPT56Model 判断是否 GPT-5.6 系列模型；入参可为原始模型名
@@ -162,8 +191,7 @@ func isOpenAIGPT56Model(model string) bool {
 }
 
 func supportsOpenAIMaxReasoningEffort(model string) bool {
-	modelID := strings.ToLower(strings.TrimSpace(lastOpenAIModelSegment(model)))
-	return isOpenAIGPT56Model(model) || modelID == openAIGPT6AstraModelID
+	return isOpenAIGPT56Model(model) || isOpenAIGPT6Model(model)
 }
 
 func appendUsageBillingModelCandidate(candidates []string, seen map[string]struct{}, model string) []string {
@@ -185,7 +213,7 @@ func appendUsageBillingModelCandidate(candidates []string, seen map[string]struc
 	}
 
 	add(trimmed)
-	if isUnsupportedOpenAIGPT6AstraModel(trimmed) {
+	if isUnsupportedOpenAIGPT6Model(trimmed) {
 		return candidates
 	}
 	if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {

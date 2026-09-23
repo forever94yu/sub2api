@@ -34,7 +34,6 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 	// models.
 	out.Temperature = req.Temperature
 	out.TopP = req.TopP
-	NormalizeResponsesSamplingForModel(out, req.Model)
 
 	storeFalse := false
 	out.Store = &storeFalse
@@ -66,6 +65,7 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		Effort:  mapAnthropicEffortToResponses(effort),
 		Summary: "auto",
 	}
+	NormalizeResponsesSamplingForModel(out, req.Model)
 
 	// Convert tool_choice
 	if len(req.ToolChoice) > 0 {
@@ -468,7 +468,14 @@ func boolPtr(v bool) *bool {
 // final upstream Responses model does not accept. Callers that map models
 // after conversion should invoke this again with the resolved upstream model.
 func NormalizeResponsesSamplingForModel(req *ResponsesRequest, model string) {
-	if req == nil || ResponsesModelSupportsSamplingParameters(model) {
+	if req == nil {
+		return
+	}
+	effort := ""
+	if req.Reasoning != nil {
+		effort = req.Reasoning.Effort
+	}
+	if ResponsesModelSupportsSamplingParameters(model, effort) {
 		return
 	}
 	req.Temperature = nil
@@ -477,7 +484,14 @@ func NormalizeResponsesSamplingForModel(req *ResponsesRequest, model string) {
 
 // ResponsesModelSupportsSamplingParameters reports whether temperature and
 // top_p may be forwarded to the selected Responses model.
-func ResponsesModelSupportsSamplingParameters(model string) bool {
+func ResponsesModelSupportsSamplingParameters(model string, reasoningEffort ...string) bool {
+	modelID := strings.ToLower(strings.TrimSpace(model))
+	if idx := strings.LastIndex(modelID, "/"); idx >= 0 {
+		modelID = strings.TrimSpace(modelID[idx+1:])
+	}
+	if modelID == "gpt-6-sol" || modelID == "gpt-6-luna" {
+		return len(reasoningEffort) > 0 && strings.EqualFold(strings.TrimSpace(reasoningEffort[0]), "none")
+	}
 	return !isReasoningModel(model)
 }
 

@@ -52,6 +52,40 @@ var (
 		Mode:                                "chat",
 		SupportsPromptCaching:               true,
 	}
+	openAIGPT6SolFallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:                   2e-06,
+		InputCostPerTokenPriority:           4e-06,
+		OutputCostPerToken:                  10e-06,
+		OutputCostPerTokenPriority:          20e-06,
+		CacheCreationInputTokenCost:         2.5e-06,
+		CacheCreationInputTokenCostPriority: 5e-06,
+		CacheReadInputTokenCost:             0.2e-06,
+		CacheReadInputTokenCostPriority:     0.4e-06,
+		LongContextInputTokenThreshold:      openAIGPT54LongContextInputThreshold,
+		LongContextInputCostMultiplier:      openAIGPT54LongContextInputMultiplier,
+		LongContextOutputCostMultiplier:     openAIGPT54LongContextOutputMultiplier,
+		SupportsServiceTier:                 true,
+		LiteLLMProvider:                     "openai",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
+	openAIGPT6LunaFallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:                   0.1e-06,
+		InputCostPerTokenPriority:           0.2e-06,
+		OutputCostPerToken:                  0.5e-06,
+		OutputCostPerTokenPriority:          1e-06,
+		CacheCreationInputTokenCost:         0.125e-06,
+		CacheCreationInputTokenCostPriority: 0.25e-06,
+		CacheReadInputTokenCost:             0.01e-06,
+		CacheReadInputTokenCostPriority:     0.02e-06,
+		LongContextInputTokenThreshold:      openAIGPT54LongContextInputThreshold,
+		LongContextInputCostMultiplier:      openAIGPT54LongContextInputMultiplier,
+		LongContextOutputCostMultiplier:     openAIGPT54LongContextOutputMultiplier,
+		SupportsServiceTier:                 true,
+		LiteLLMProvider:                     "openai",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
 	openAIGPT56SolFallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken:                   5e-06,
 		InputCostPerTokenPriority:           1e-05,
@@ -667,7 +701,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 
 	// 标准化模型名称（同时兼容 "models/xxx"、VertexAI 资源名等前缀）
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
-	if isUnsupportedOpenAIGPT6AstraModel(modelLower) {
+	if isUnsupportedOpenAIGPT6Model(modelLower) {
 		return nil
 	}
 	lookupCandidates := s.buildModelLookupCandidates(modelLower)
@@ -745,7 +779,7 @@ func (s *PricingService) GetIdentifiedModelPricing(modelName string) *LiteLLMMod
 	if modelLower == "" {
 		return nil
 	}
-	if isUnsupportedOpenAIGPT6AstraModel(modelLower) {
+	if isUnsupportedOpenAIGPT6Model(modelLower) {
 		return nil
 	}
 	return s.lookupIdentifiedModelPricingLocked(s.buildModelLookupCandidates(modelLower))
@@ -985,6 +1019,16 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		logger.With(zap.String("component", "service.pricing")).
 			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-6-astra(static)"))
 		return openAIGPT6AstraFallbackPricing
+	}
+	if model == "gpt-6-sol" {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-6-sol(static)"))
+		return openAIGPT6SolFallbackPricing
+	}
+	if model == "gpt-6-luna" {
+		logger.With(zap.String("component", "service.pricing")).
+			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-6-luna(static)"))
+		return openAIGPT6LunaFallbackPricing
 	}
 
 	if strings.HasPrefix(model, "gpt-5.3-codex-spark") {

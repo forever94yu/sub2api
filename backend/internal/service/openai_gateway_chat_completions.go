@@ -141,7 +141,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		if err != nil {
 			return nil, fmt.Errorf("rewrite model in responses-shape body: %w", err)
 		}
-		if !apicompat.ResponsesModelSupportsSamplingParameters(upstreamModel) {
+		if !apicompat.ResponsesModelSupportsSamplingParameters(upstreamModel, gjson.GetBytes(responsesBody, "reasoning.effort").String()) {
 			for _, field := range []string{"temperature", "top_p"} {
 				if stripped, derr := sjson.DeleteBytes(responsesBody, field); derr == nil {
 					responsesBody = stripped
@@ -179,6 +179,11 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 			return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 		}
 		responsesReq.Model = upstreamModel
+		if isOpenAIGPT6SolLunaModel(upstreamModel) && strings.EqualFold(strings.TrimSpace(chatReq.ReasoningEffort), "none") {
+			// Conversion may have stripped sampling for the client's old model alias.
+			// The resolved Sol/Luna model supports these fields with reasoning none.
+			responsesReq.Temperature, responsesReq.TopP = chatReq.Temperature, chatReq.TopP
+		}
 		apicompat.NormalizeResponsesSamplingForModel(responsesReq, upstreamModel)
 		normalizeResponsesRequestServiceTier(responsesReq)
 		responsesBody, err = json.Marshal(responsesReq)

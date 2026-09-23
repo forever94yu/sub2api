@@ -127,10 +127,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	responsesReq.Model = upstreamModel
-	apicompat.NormalizeResponsesSamplingForModel(responsesReq, upstreamModel)
 	if responsesReq.Reasoning != nil {
 		responsesReq.Reasoning.Effort = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, responsesReq.Reasoning.Effort)
+		if isOpenAIGPT6SolLunaModel(upstreamModel) && strings.EqualFold(strings.TrimSpace(responsesReq.Reasoning.Effort), "none") {
+			// Preserve sampling when an older client model alias resolves to Sol/Luna.
+			responsesReq.Temperature, responsesReq.TopP = anthropicReq.Temperature, anthropicReq.TopP
+		}
 	}
+	apicompat.NormalizeResponsesSamplingForModel(responsesReq, upstreamModel)
 	if previousResponseID != "" {
 		responsesReq.PreviousResponseID = previousResponseID
 		trimAnthropicCompatResponsesInputToLatestTurn(responsesReq)
