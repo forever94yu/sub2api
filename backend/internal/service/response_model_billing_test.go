@@ -389,10 +389,10 @@ func TestGatewayServiceRecordUsage_ResponseModelRejectsUnidentifiedFamilyName(t 
 
 	baselineCost, err := svc.billingService.CalculateCost(anthropicPriceyFixtureModel, tokens, 1.1)
 	require.NoError(t, err)
-	// 前提：这个编造的名字确实能被宽松查价算出更低的费用——正是必须被拒绝的那条路径。
+	// The fabricated name must fail pricing lookup as well as response-model adoption.
 	forgedCost, err := svc.billingService.CalculateCost(forged, tokens, 1.1)
-	require.NoError(t, err)
-	require.Less(t, forgedCost.TotalCost, baselineCost.TotalCost)
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Nil(t, forgedCost)
 
 	err = svc.RecordUsage(context.Background(), &RecordUsageInput{
 		Result: &ForwardResult{
@@ -429,8 +429,8 @@ func TestOpenAIGatewayServiceRecordUsage_ResponseModelRejectsUnidentifiedFamilyN
 	baselineCost, err := svc.billingService.CalculateCost(openAIPriceyFixtureModel, tokens, 1.1)
 	require.NoError(t, err)
 	forgedCost, err := svc.billingService.CalculateCost(forged, tokens, 1.1)
-	require.NoError(t, err)
-	require.Less(t, forgedCost.TotalCost, baselineCost.TotalCost)
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Nil(t, forgedCost)
 
 	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
 		Result: &OpenAIForwardResult{

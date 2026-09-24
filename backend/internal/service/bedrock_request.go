@@ -637,20 +637,17 @@ func filterBedrockBetaTokens(tokens []string) []string {
 	return result
 }
 
+// The final Bedrock whitelist governs the same beta fields as direct Anthropic.
 func sanitizeBedrockFieldsForBetaTokens(body []byte, betaTokens []string) []byte {
-	if !containsBedrockBetaToken(betaTokens, bedrockContextManagementBetaToken) && gjson.GetBytes(body, "context_management").Exists() {
-		body, _ = sjson.DeleteBytes(body, "context_management")
-	}
-	return body
+	body, _ = sanitizeAnthropicBodyForBetaTokens(body, strings.Join(betaTokens, ","))
+	return sanitizeBedrockDirectAPIFields(body)
 }
 
-func containsBedrockBetaToken(tokens []string, target string) bool {
-	for _, token := range tokens {
-		if token == target {
-			return true
-		}
+func sanitizeBedrockDirectAPIFields(body []byte) []byte {
+	for _, field := range []string{"service_tier", "speed", "inference_geo", "interface_geo"} {
+		body, _ = sjson.DeleteBytes(body, field)
 	}
-	return false
+	return body
 }
 
 // bedrockToolUseIDRe 匹配 Bedrock 允许的 tool_use ID 字符（字母、数字、下划线、连字符）
@@ -757,19 +754,22 @@ const defaultCCMaxTokens = 81920
 
 // sanitizeBedrockCCFields 处理 Claude Code 发送的 Bedrock 不兼容字段：
 //   - 移除 service_tier（Anthropic API 专有，Bedrock 不支持）
-//   - 移除 interface_geo（Anthropic API 专有，Bedrock 不支持）
+//   - 移除 speed / inference_geo（Anthropic API 专有，Bedrock 不支持）
 //   - 移除 context_management（Anthropic API 专有，Bedrock 不支持，CC v2.1.87+ 默认携带）
+//   - 无条件移除 fallbacks / fallback_credit_token（server-side refusal fallback，
+//     Anthropic 直连 beta API 专有；Bedrock Invoke 无对应 beta，永不支持）
 //   - 注入 max_tokens 默认值 81920（CC 可能省略，Bedrock 要求必须提供）
 //   - 注入 anthropic_version（CC 通过 HTTP 头发送，Bedrock 需要放在请求体中）
 func sanitizeBedrockCCFields(body []byte) []byte {
-	if gjson.GetBytes(body, "service_tier").Exists() {
-		body, _ = sjson.DeleteBytes(body, "service_tier")
-	}
-	if gjson.GetBytes(body, "interface_geo").Exists() {
-		body, _ = sjson.DeleteBytes(body, "interface_geo")
-	}
+	body = sanitizeBedrockDirectAPIFields(body)
 	if gjson.GetBytes(body, "context_management").Exists() {
 		body, _ = sjson.DeleteBytes(body, "context_management")
+	}
+	if gjson.GetBytes(body, "fallbacks").Exists() {
+		body, _ = sjson.DeleteBytes(body, "fallbacks")
+	}
+	if gjson.GetBytes(body, "fallback_credit_token").Exists() {
+		body, _ = sjson.DeleteBytes(body, "fallback_credit_token")
 	}
 	if !gjson.GetBytes(body, "max_tokens").Exists() {
 		body, _ = sjson.SetBytes(body, "max_tokens", defaultCCMaxTokens)

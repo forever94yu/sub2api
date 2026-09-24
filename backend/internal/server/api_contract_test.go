@@ -948,6 +948,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_advanced_scheduler_effective_weight_session_sticky": "3",
 					"openai_codex_user_agent":           "",
 					"openai_codex_client_version":       "",
+					"claude_code_client_version":       "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
@@ -1261,6 +1264,9 @@ func TestAPIContracts(t *testing.T) {
 					"openai_advanced_scheduler_effective_weight_session_sticky": "3",
 					"openai_codex_user_agent":           "",
 					"openai_codex_client_version":       "",
+					"claude_code_client_version":       "",
+					"claude_code_client_version_synced": "",
+					"claude_code_version_auto_sync_enabled": true,
 					"openai_codex_client_version_synced": "",
 					"openai_codex_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {

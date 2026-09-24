@@ -614,11 +614,16 @@ type ForwardResult struct {
 	// response before any client-facing rewrite or protocol conversion.
 	UpstreamResponseModel         string
 	UpstreamResponseModelConflict bool
-	Stream                        bool
-	Duration                      time.Duration
-	FirstTokenMs                  *int // 首字时间（流式请求）
-	ClientDisconnect              bool // 客户端是否在流式传输过程中断开
-	ReasoningEffort               *string
+	// Anthropic billing uses speed and inference_geo, not OpenAI service_tier.
+	UpstreamResponseServiceTier  string
+	UpstreamResponseInferenceGeo string
+	ServiceTier                  *string
+	InferenceGeo                 string
+	Stream                       bool
+	Duration                     time.Duration
+	FirstTokenMs                 *int // 首字时间（流式请求）
+	ClientDisconnect             bool // 客户端是否在流式传输过程中断开
+	ReasoningEffort              *string
 
 	// 图片生成计费字段（图片生成模型使用）
 	ImageCount         int    // 生成的图片数量

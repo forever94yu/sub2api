@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/shopspring/decimal"
 )
 
 func (s *GatewayService) getUserGroupRateMultiplier(ctx context.Context, userID, groupID int64, groupDefaultMultiplier float64) float64 {
@@ -129,6 +131,18 @@ func (p *postUsageBillingParams) shouldUpdateAccountQuota() bool {
 	return p.Cost.TotalCost > 0 && p.Account.IsAPIKeyOrBedrock() && p.Account.HasAnyQuotaLimit()
 }
 
+func calculateAccountQuotaCost(totalCost, accountRateMultiplier float64) float64 {
+	if math.IsNaN(totalCost) || math.IsInf(totalCost, 0) || math.IsNaN(accountRateMultiplier) || math.IsInf(accountRateMultiplier, 0) {
+		return totalCost * accountRateMultiplier
+	}
+	// Match usage_logs.total_cost NUMERIC(20,10) and account_rate_multiplier
+	// NUMERIC(10,4) before multiplying, then quantize the quota increment once.
+	amount, _ := decimal.NewFromFloat(totalCost).Round(10).
+		Mul(decimal.NewFromFloat(accountRateMultiplier).Round(4)).
+		Round(UsageBillingMonetaryScale).Float64()
+	return amount
+}
+
 // postUsageBilling is the legacy fallback billing path used when the unified
 // billing repo is unavailable (nil). Production uses applyUsageBilling → repo.Apply
 // for atomic billing. This path only runs in tests or degraded mode.
@@ -171,7 +185,7 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 	}
 
 	if p.shouldUpdateAccountQuota() {
-		accountCost := cost.TotalCost * p.AccountRateMultiplier
+		accountCost := calculateAccountQuotaCost(cost.TotalCost, p.AccountRateMultiplier)
 		if err := deps.accountRepo.IncrementQuotaUsed(billingCtx, p.Account.ID, accountCost); err != nil {
 			slog.Error("increment account quota used failed", "account_id", p.Account.ID, "cost", accountCost, "error", err)
 		}
@@ -328,6 +342,11 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	}
 
 	cmd.Normalize()
+	if p.shouldUpdateAccountQuota() {
+		// Normalize must fingerprint the original amount before the corrected quota
+		// amount is applied, preserving idempotency for retries across upgrades.
+		cmd.AccountQuotaCost = calculateAccountQuotaCost(p.Cost.TotalCost, p.AccountRateMultiplier)
+	}
 	return cmd
 }
 
@@ -505,7 +524,7 @@ func notifyAccountQuota(p *postUsageBillingParams, deps *billingDeps, result *Us
 		)
 		return
 	}
-	accountCost := p.Cost.TotalCost * p.AccountRateMultiplier
+	accountCost := calculateAccountQuotaCost(p.Cost.TotalCost, p.AccountRateMultiplier)
 	var quotaState *AccountQuotaState
 	if result != nil {
 		quotaState = result.QuotaState
@@ -780,6 +799,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	account := input.Account
 	subscription := input.Subscription
 	ApplyForwardImageBillingResolution(result)
+	resolveForwardClaudeBillingMetadata(result)
 
 	// 强制缓存计费：将 input_tokens 转为 cache_read_input_tokens
 	// 用于粘性会话切换时的特殊计费处理
@@ -854,13 +874,24 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0,
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(billingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey); identified {
-			responseCost := s.calculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, pricingAt, opts)
+			// The response model also determines feature eligibility. Keep the sent
+			// model on the original result for auditing and custom-alias billing.
+			responseResult := *result
+			responseResult.UpstreamModel = responseModel
+			if result.ServiceTier != nil && normalizeBillingServiceTier(*result.ServiceTier) == "fast" {
+				if _, fastMultiplier := claudeTokenPricingModifiers(responseModel, "fast", ""); fastMultiplier == 1 {
+					standard := "standard"
+					responseResult.ServiceTier = &standard
+				}
+			}
+			responseCost := s.calculateRecordUsageCost(ctx, &responseResult, apiKey, responseModel, multiplier, imageMultiplier, pricingAt, opts)
 			baselineChannelPriced := s.resolveChannelPricing(ctx, billingModel, apiKey) != nil
 			if responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
 				// billingModel 到此为止只是定价查表的入参，后续流程只消费 cost，
 				// 因此这里不改写它，改由日志记录实际生效的计费基准。
 				logResponseModelBillingApplied("service.gateway", account, result.RequestID, billingModel, responseModel, cost, responseCost)
 				cost = responseCost
+				result.ServiceTier = responseResult.ServiceTier
 			}
 		}
 	}
@@ -884,11 +915,13 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			// Anthropic's input_tokens excludes cache_read and cache_creation (billed separately);
 			// OpenAI gateway uses actualInputTokens which also excludes cache_read for the same reason.
 			UsageTokens{
-				InputTokens:         result.Usage.InputTokens,
-				OutputTokens:        result.Usage.OutputTokens,
-				CacheCreationTokens: result.Usage.CacheCreationInputTokens,
-				CacheReadTokens:     result.Usage.CacheReadInputTokens,
-				ImageOutputTokens:   result.Usage.ImageOutputTokens,
+				InputTokens:           result.Usage.InputTokens,
+				OutputTokens:          result.Usage.OutputTokens,
+				CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
+				CacheReadTokens:       result.Usage.CacheReadInputTokens,
+				CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
+				CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
+				ImageOutputTokens:     result.Usage.ImageOutputTokens,
 			},
 			cost.TotalCost,
 		)
@@ -933,6 +966,22 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 
 	return nil
+}
+
+// Provider declarations may lower the requested bill, but cannot silently
+// upgrade a standard/global request to Fast or US-only pricing.
+func resolveForwardClaudeBillingMetadata(result *ForwardResult) {
+	if result == nil {
+		return
+	}
+	if result.ServiceTier != nil && normalizeBillingServiceTier(*result.ServiceTier) == "fast" &&
+		normalizeBillingServiceTier(result.UpstreamResponseServiceTier) == "standard" {
+		standard := "standard"
+		result.ServiceTier = &standard
+	}
+	if strings.EqualFold(result.InferenceGeo, "us") && strings.EqualFold(result.UpstreamResponseInferenceGeo, "global") {
+		result.InferenceGeo = "global"
+	}
 }
 
 // calculateRecordUsageCost 根据请求类型和选项计算费用。
@@ -1147,6 +1196,11 @@ func (s *GatewayService) calculateTokenCost(
 
 	var cost *CostBreakdown
 	var err error
+	serviceTier := ""
+	if result.ServiceTier != nil {
+		serviceTier = *result.ServiceTier
+	}
+	upstreamModel := forwardResultBillingModel(result.Model, result.UpstreamModel)
 
 	// Explicit group/channel pricing wins. Built-in pricing also uses the unified
 	// resolver so the group long-context toggle can veto model-native tiers.
@@ -1155,6 +1209,9 @@ func (s *GatewayService) calculateTokenCost(
 		cost, err = s.billingService.CalculateCostUnified(CostInput{
 			Ctx:            ctx,
 			Model:          billingModel,
+			UpstreamModel:  upstreamModel,
+			ServiceTier:    serviceTier,
+			InferenceGeo:   result.InferenceGeo,
 			GroupID:        &gid,
 			Group:          apiKey.Group,
 			Tokens:         tokens,
@@ -1167,14 +1224,22 @@ func (s *GatewayService) calculateTokenCost(
 	} else if opts.LongContextThreshold > 0 && (apiKey.Group == nil || apiKey.Group.LongContextPricingEnabled) {
 		// 长上下文双倍计费（如 Gemini 200K 阈值）
 		cost, err = s.billingService.CalculateCostWithLongContext(billingModel, tokens, multiplier, opts.LongContextThreshold, opts.LongContextMultiplier)
+		if err == nil {
+			_, modifier := claudeTokenPricingModifiers(upstreamModel, serviceTier, result.InferenceGeo)
+			applyCostBreakdownMultiplier(cost, modifier)
+		}
 	} else if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
 		cost, err = s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt, Resolver: s.resolver,
+			UpstreamModel: upstreamModel, ServiceTier: serviceTier, InferenceGeo: result.InferenceGeo,
 		})
 	} else {
-		cost, err = s.billingService.CalculateCost(billingModel, tokens, multiplier)
+		cost, err = s.billingService.CalculateCostUnified(CostInput{
+			Ctx: ctx, Model: billingModel, Tokens: tokens, RateMultiplier: multiplier,
+			UpstreamModel: upstreamModel, ServiceTier: serviceTier, InferenceGeo: result.InferenceGeo,
+		})
 	}
 	if err != nil {
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
@@ -1224,6 +1289,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		UpstreamResponseModel: optionalTrimmedStringPtr(result.UpstreamResponseModel),
 		UpstreamModelMismatch: upstreamModelMismatch(sentModel, result.UpstreamResponseModel),
 		ReasoningEffort:       result.ReasoningEffort,
+		ServiceTier:           result.ServiceTier,
 		InboundEndpoint:       optionalTrimmedStringPtr(input.InboundEndpoint),
 		UpstreamEndpoint:      optionalTrimmedStringPtr(input.UpstreamEndpoint),
 		InputTokens:           result.Usage.InputTokens,

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -52,4 +54,38 @@ func gatewayTokenRequestBillingGroupFromContext(ctx context.Context) *Group {
 		return group
 	}
 	return nil
+}
+
+// Reject unpriced billable Claude requests before the provider performs work.
+// Metadata/count-token requests do not carry the token-pricing context marker.
+func (s *GatewayService) ensureClaudeRequestPricing(ctx context.Context, account *Account, requestedModel, upstreamModel string) error {
+	if account == nil || account.Platform != PlatformAnthropic {
+		return nil
+	}
+	if _, billable := gatewayTokenRequestPricingAtFromContext(ctx); !billable {
+		return nil
+	}
+	group := gatewayTokenRequestBillingGroupFromContext(ctx)
+	for _, model := range []string{upstreamModel, requestedModel} {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if s.resolver != nil {
+			input := PricingInput{Model: model, Group: group}
+			if group != nil {
+				input.GroupID = &group.ID
+			}
+			resolved := s.resolver.Resolve(ctx, input)
+			if resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel {
+				return nil
+			}
+		}
+		if s.billingService != nil {
+			if _, err := s.billingService.GetModelPricing(model); err == nil {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("%w for Claude request model: %s", ErrModelPricingUnavailable, requestedModel)
 }

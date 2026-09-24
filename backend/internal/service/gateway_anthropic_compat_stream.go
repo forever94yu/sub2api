@@ -97,6 +97,9 @@ func (s *GatewayService) consumeAnthropicCompatStream(
 		if strings.TrimSpace(frame.Data) == "" {
 			return false, nil
 		}
+		if observer := upstreamResponseModelObserverFromContext(c); observer != nil {
+			observer.ObserveAnthropic([]byte(frame.Data))
+		}
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(frame.Data), &event); err != nil {
 			return false, newAnthropicCompatStreamFailure(resp, "Invalid upstream stream event")
@@ -203,6 +206,8 @@ func (s *GatewayService) readAnthropicCompatBufferedResponse(resp *http.Response
 				block.Text += event.Delta.Text
 			case "thinking_delta":
 				block.Thinking += event.Delta.Thinking
+			case "signature_delta":
+				block.Signature += event.Delta.Signature
 			case "input_json_delta":
 				// content_block_start carries an initial object (normally {}).
 				// The first delta starts its replacement serialized JSON value.

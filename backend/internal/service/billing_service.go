@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -221,70 +222,44 @@ func NewBillingService(cfg *config.Config, pricingService *PricingService) *Bill
 // initFallbackPricing 初始化硬编码回退价格（当动态价格不可用时使用）
 // 价格单位：USD per token（与LiteLLM格式一致）
 func (s *BillingService) initFallbackPricing() {
-	// Claude 4.5 Opus
-	s.fallbackPrices["claude-opus-4.5"] = &ModelPricing{
-		InputPricePerToken:         5e-6,    // $5 per MTok
-		OutputPricePerToken:        25e-6,   // $25 per MTok
-		CacheCreationPricePerToken: 6.25e-6, // $6.25 per MTok
-		CacheReadPricePerToken:     0.5e-6,  // $0.50 per MTok
-		SupportsCacheBreakdown:     false,
+	// USD per MTok: https://platform.claude.com/docs/en/about-claude/pricing.
+	// Cache writes cost 1.25x (5m) or 2x (1h); reads differ on Fable 5.1/Opus 5.5.
+	for _, rate := range []struct {
+		model               string
+		input, output, read float64
+	}{
+		{"claude-fable-5", 10, 50, 1},
+		{"claude-fable-5-1", 10, 50, 0.25},
+		{"claude-opus-5-5", 4, 20, 0.2},
+		{"claude-opus-5", 5, 25, 0.5},
+		{"claude-opus-4-8", 5, 25, 0.5},
+		{"claude-opus-4-7", 5, 25, 0.5},
+		{"claude-opus-4-6", 5, 25, 0.5},
+		{"claude-opus-4-5", 5, 25, 0.5},
+		{"claude-opus-4-1", 15, 75, 1.5},
+		{"claude-opus-4", 15, 75, 1.5},
+		{"claude-3-opus", 15, 75, 1.5},
+		{"claude-sonnet-5", 2, 10, 0.2},
+		{"claude-sonnet-4-6", 3, 15, 0.3},
+		{"claude-sonnet-4-5", 3, 15, 0.3},
+		{"claude-sonnet-4", 3, 15, 0.3},
+		{"claude-3-7-sonnet", 3, 15, 0.3},
+		{"claude-3-5-sonnet", 3, 15, 0.3},
+		{"claude-3-sonnet", 3, 15, 0.3},
+		{"claude-haiku-4-5", 1, 5, 0.1},
+		{"claude-3-5-haiku", 0.8, 4, 0.08},
+		{"claude-3-haiku", 0.25, 1.25, 0.025},
+	} {
+		s.fallbackPrices[rate.model] = &ModelPricing{
+			InputPricePerToken:         rate.input / 1e6,
+			OutputPricePerToken:        rate.output / 1e6,
+			CacheCreationPricePerToken: rate.input * 1.25 / 1e6,
+			CacheReadPricePerToken:     rate.read / 1e6,
+			CacheCreation5mPrice:       rate.input * 1.25 / 1e6,
+			CacheCreation1hPrice:       rate.input * 2 / 1e6,
+			SupportsCacheBreakdown:     true,
+		}
 	}
-
-	// Claude 4 Sonnet
-	s.fallbackPrices["claude-sonnet-4"] = &ModelPricing{
-		InputPricePerToken:         3e-6,    // $3 per MTok
-		OutputPricePerToken:        15e-6,   // $15 per MTok
-		CacheCreationPricePerToken: 3.75e-6, // $3.75 per MTok
-		CacheReadPricePerToken:     0.3e-6,  // $0.30 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 3.5 Sonnet
-	s.fallbackPrices["claude-3-5-sonnet"] = &ModelPricing{
-		InputPricePerToken:         3e-6,    // $3 per MTok
-		OutputPricePerToken:        15e-6,   // $15 per MTok
-		CacheCreationPricePerToken: 3.75e-6, // $3.75 per MTok
-		CacheReadPricePerToken:     0.3e-6,  // $0.30 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 3.5 Haiku
-	s.fallbackPrices["claude-3-5-haiku"] = &ModelPricing{
-		InputPricePerToken:         1e-6,    // $1 per MTok
-		OutputPricePerToken:        5e-6,    // $5 per MTok
-		CacheCreationPricePerToken: 1.25e-6, // $1.25 per MTok
-		CacheReadPricePerToken:     0.1e-6,  // $0.10 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 3 Opus
-	s.fallbackPrices["claude-3-opus"] = &ModelPricing{
-		InputPricePerToken:         15e-6,    // $15 per MTok
-		OutputPricePerToken:        75e-6,    // $75 per MTok
-		CacheCreationPricePerToken: 18.75e-6, // $18.75 per MTok
-		CacheReadPricePerToken:     1.5e-6,   // $1.50 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 3 Haiku
-	s.fallbackPrices["claude-3-haiku"] = &ModelPricing{
-		InputPricePerToken:         0.25e-6, // $0.25 per MTok
-		OutputPricePerToken:        1.25e-6, // $1.25 per MTok
-		CacheCreationPricePerToken: 0.3e-6,  // $0.30 per MTok
-		CacheReadPricePerToken:     0.03e-6, // $0.03 per MTok
-		SupportsCacheBreakdown:     false,
-	}
-
-	// Claude 4.6 Opus (与4.5同价)
-	s.fallbackPrices["claude-opus-4.6"] = s.fallbackPrices["claude-opus-4.5"]
-
-	// Claude 4.7 Opus (暂与4.6同价，待官方定价更新)
-	s.fallbackPrices["claude-opus-4.7"] = s.fallbackPrices["claude-opus-4.6"]
-
-	// Claude 4.8 Opus / Claude Opus 5（官方同价：$5 输入 / $25 输出 per MTok）。
-	// 缺少这两条时 getFallbackPricing 会掉到 claude-3-opus（$15/$75），造成 3 倍超收。
-	s.fallbackPrices["claude-opus-4.8"] = s.fallbackPrices["claude-opus-4.7"]
-	s.fallbackPrices["claude-opus-5"] = s.fallbackPrices["claude-opus-4.8"]
 
 	// Gemini 3.1 Pro
 	s.fallbackPrices["gemini-3.1-pro"] = &ModelPricing{
@@ -549,42 +524,8 @@ func (s *BillingService) initFallbackPricing() {
 // getFallbackPricing 根据模型系列获取回退价格
 func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	modelLower := strings.ToLower(model)
-
-	// 按模型系列匹配
-	if strings.Contains(modelLower, "opus") {
-		// "opus-5" 必须先判：不能用裸 "5" 匹配，否则 claude-opus-4-5 会被误判。
-		if strings.Contains(modelLower, "opus-5") || strings.Contains(modelLower, "opus5") {
-			return s.fallbackPrices["claude-opus-5"]
-		}
-		if strings.Contains(modelLower, "4.8") || strings.Contains(modelLower, "4-8") {
-			return s.fallbackPrices["claude-opus-4.8"]
-		}
-		if strings.Contains(modelLower, "4.7") || strings.Contains(modelLower, "4-7") {
-			return s.fallbackPrices["claude-opus-4.7"]
-		}
-		if strings.Contains(modelLower, "4.6") || strings.Contains(modelLower, "4-6") {
-			return s.fallbackPrices["claude-opus-4.6"]
-		}
-		if strings.Contains(modelLower, "4.5") || strings.Contains(modelLower, "4-5") {
-			return s.fallbackPrices["claude-opus-4.5"]
-		}
-		return s.fallbackPrices["claude-3-opus"]
-	}
-	if strings.Contains(modelLower, "sonnet") {
-		if strings.Contains(modelLower, "4") && !strings.Contains(modelLower, "3") {
-			return s.fallbackPrices["claude-sonnet-4"]
-		}
-		return s.fallbackPrices["claude-3-5-sonnet"]
-	}
-	if strings.Contains(modelLower, "haiku") {
-		if strings.Contains(modelLower, "3-5") || strings.Contains(modelLower, "3.5") {
-			return s.fallbackPrices["claude-3-5-haiku"]
-		}
-		return s.fallbackPrices["claude-3-haiku"]
-	}
-	// Claude 未知型号统一回退到 Sonnet，避免计费中断。
-	if strings.Contains(modelLower, "claude") {
-		return s.fallbackPrices["claude-sonnet-4"]
+	if canonical := canonicalClaudeModelForPricing(modelLower); canonical != "" {
+		return s.fallbackPrices[canonical]
 	}
 	if strings.Contains(modelLower, "gemini-3.1-pro") || strings.Contains(modelLower, "gemini-3-1-pro") {
 		return s.fallbackPrices["gemini-3.1-pro"]
@@ -733,6 +674,9 @@ func (s *BillingService) HasIdentifiedTokenPricing(model string) bool {
 			return true
 		}
 	}
+	if canonical := canonicalClaudeModelForPricing(model); canonical != "" {
+		return s.fallbackPrices[canonical] != nil
+	}
 	pricing, ok := s.fallbackPrices[model]
 	return ok && pricing != nil
 }
@@ -740,7 +684,7 @@ func (s *BillingService) HasIdentifiedTokenPricing(model string) bool {
 // GetModelPricing 获取模型价格配置
 func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
-	model = strings.ToLower(model)
+	model = strings.ToLower(strings.TrimSpace(model))
 	if isUnsupportedOpenAIGPT6Model(model) {
 		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
 	}
@@ -846,6 +790,8 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 type CostInput struct {
 	Ctx                       context.Context
 	Model                     string
+	UpstreamModel             string // Actual Claude model for speed/geography modifiers when billing uses a custom alias.
+	InferenceGeo              string // First-party Claude inference geography; "us" carries a 1.1x premium.
 	GroupID                   *int64 // 用于渠道定价查找
 	Group                     *Group
 	Tokens                    UsageTokens
@@ -863,13 +809,19 @@ type CostInput struct {
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
 // 使用 ModelPricingResolver 解析定价，然后根据 BillingMode 分发计算。
 func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, error) {
+	modifierModel := input.Model
+	if input.UpstreamModel != "" {
+		modifierModel = input.UpstreamModel
+	}
+	serviceTier, claudeMultiplier := claudeTokenPricingModifiers(modifierModel, input.ServiceTier, input.InferenceGeo)
+	input.ServiceTier = serviceTier
 	if input.Resolver == nil {
 		// 无 Resolver，回退到旧路径
 		applyLongContextBilling := true
 		if input.LongContextBillingEnabled != nil {
 			applyLongContextBilling = *input.LongContextBillingEnabled
 		}
-		return s.calculateCostInternalWithPolicy(
+		cost, err := s.calculateCostInternalWithPolicy(
 			input.Model,
 			input.Tokens,
 			input.RateMultiplier,
@@ -877,6 +829,10 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 			nil,
 			applyLongContextBilling,
 		)
+		if err == nil {
+			applyCostBreakdownMultiplier(cost, claudeMultiplier)
+		}
+		return cost, err
 	}
 
 	// 优先使用预解析结果，避免重复 Resolve 调用
@@ -901,6 +857,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		breakdown, err = s.calculatePerRequestCost(resolved, input)
 	default: // BillingModeToken
 		breakdown, err = s.calculateTokenCost(resolved, input)
+		if err == nil {
+			applyCostBreakdownMultiplier(breakdown, claudeMultiplier)
+		}
 	}
 	if err == nil && breakdown != nil {
 		breakdown.BillingMode = string(resolved.Mode)
@@ -1048,14 +1007,27 @@ func (s *BillingService) computeTokenBreakdown(
 // multiplier 用于长上下文等场景下的整体价格缩放（普通调用传 1.0 即可）。
 func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens UsageTokens, price, multiplier float64) float64 {
 	if pricing.SupportsCacheBreakdown && (pricing.CacheCreation5mPrice > 0 || pricing.CacheCreation1hPrice > 0) {
-		if tokens.CacheCreation5mTokens == 0 && tokens.CacheCreation1hTokens == 0 && tokens.CacheCreationTokens > 0 {
-			// API 未返回 ephemeral 明细，回退到全部按 5m 单价计费
-			return float64(tokens.CacheCreationTokens) * pricing.CacheCreation5mPrice * multiplier
-		}
-		return float64(tokens.CacheCreation5mTokens)*pricing.CacheCreation5mPrice*multiplier +
-			float64(tokens.CacheCreation1hTokens)*pricing.CacheCreation1hPrice*multiplier
+		five, hour := normalizeCacheCreationBreakdown(tokens)
+		return float64(five)*pricing.CacheCreation5mPrice*multiplier +
+			float64(hour)*pricing.CacheCreation1hPrice*multiplier
 	}
 	return float64(tokens.CacheCreationTokens) * price * multiplier
+}
+
+// A positive aggregate caps contradictory details. Missing detail tokens use
+// the standard 5m rate; excessive details retain their ratio, as upstream does.
+func normalizeCacheCreationBreakdown(tokens UsageTokens) (int, int) {
+	five, hour := max(tokens.CacheCreation5mTokens, 0), max(tokens.CacheCreation1hTokens, 0)
+	aggregate := tokens.CacheCreationTokens
+	if aggregate <= 0 {
+		return five, hour
+	}
+	if five <= aggregate && hour <= aggregate-five {
+		return aggregate - hour, hour
+	}
+	detailTotal := float64(five) + float64(hour)
+	five = min(int(math.Round(float64(aggregate)*float64(five)/detailTotal)), aggregate)
+	return five, aggregate - five
 }
 
 // calculatePerRequestCost 按次/图片计费
@@ -1136,12 +1108,53 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 		return nil, err
 	}
 
-	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled), nil
+	serviceTier, multiplier := claudeTokenPricingModifiers(model, serviceTier, "")
+	cost := s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled)
+	applyCostBreakdownMultiplier(cost, multiplier)
+	return cost, nil
+}
+
+func claudeTokenPricingModifiers(model, serviceTier, inferenceGeo string) (string, float64) {
+	canonical := canonicalClaudeModelForPricing(model)
+	if canonical == "" {
+		return serviceTier, 1
+	}
+	// Partner cloud endpoints have independent pricing; an exact catalog or
+	// configured channel price can express their regional premiums.
+	lower := strings.ToLower(model)
+	if strings.Contains(lower, "anthropic.") || strings.Contains(lower, "/publishers/anthropic/") || strings.Contains(lower, "@") {
+		return "", 1
+	}
+	multiplier := 1.0
+	if normalizeBillingServiceTier(serviceTier) == "fast" {
+		switch canonical {
+		case "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5":
+			multiplier = 2
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(inferenceGeo), "us") {
+		switch canonical {
+		case "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5",
+			"claude-fable-5", "claude-fable-5-1", "claude-sonnet-4-6", "claude-sonnet-5":
+			multiplier *= 1.1
+		}
+	}
+	// Anthropic service_tier controls capacity, while speed controls Fast pricing.
+	return "", multiplier
 }
 
 func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *ModelPricing) *ModelPricing {
 	if pricing == nil {
 		return nil
+	}
+	if canonical := canonicalClaudeModelForPricing(model); canonical == "claude-sonnet-4" || canonical == "claude-sonnet-4-5" {
+		cloned := *pricing
+		if cloned.LongContextInputThreshold <= 0 {
+			cloned.LongContextInputThreshold = 200000
+			cloned.LongContextInputMultiplier = 2
+			cloned.LongContextOutputMultiplier = 1.5
+		}
+		return &cloned
 	}
 	normalized := normalizeKnownOpenAICodexModel(model)
 	isGPT56 := isOpenAIGPT56Model(normalized)

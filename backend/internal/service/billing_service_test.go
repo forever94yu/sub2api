@@ -101,7 +101,7 @@ func TestGetModelPricing_FallbackMatchesByFamily(t *testing.T) {
 		{"claude-3-opus-20240229", 15e-6},
 		{"claude-sonnet-4-20250514", 3e-6},
 		{"claude-3-5-sonnet-20241022", 3e-6},
-		{"claude-3-5-haiku-20241022", 1e-6},
+		{"claude-3-5-haiku-20241022", 0.8e-6},
 		{"claude-3-haiku-20240307", 0.25e-6},
 	}
 
@@ -170,13 +170,13 @@ func TestRemovedProviderModelsHaveNoDedicatedFallbackPricing(t *testing.T) {
 	}
 }
 
-func TestGetModelPricing_UnknownClaudeModelFallsBackToSonnet(t *testing.T) {
+func TestGetModelPricing_UnknownClaudeModelReturnsError(t *testing.T) {
 	svc := newTestBillingService()
 
-	// 不包含 opus/sonnet/haiku 关键词的 Claude 模型会走默认 Sonnet 价格
+	// Unknown models require explicit pricing instead of silently borrowing Sonnet rates.
 	pricing, err := svc.GetModelPricing("claude-unknown-model")
-	require.NoError(t, err)
-	require.InDelta(t, 3e-6, pricing.InputPricePerToken, 1e-12)
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	require.Nil(t, pricing)
 }
 
 func TestGetModelPricing_UnknownOpenAIModelReturnsError(t *testing.T) {
@@ -447,7 +447,7 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "empty model", model: "   ", expectNilPricing: true},
 		{name: "claude opus 4.6", model: "claude-opus-4.6-20260201", expectedInput: 5e-6},
 		{name: "claude opus 4.5 alt separator", model: "claude-opus-4-5-20260101", expectedInput: 5e-6},
-		{name: "claude generic model fallback sonnet", model: "claude-foo-bar", expectedInput: 3e-6},
+		{name: "claude unknown model has no fallback", model: "claude-foo-bar", expectNilPricing: true},
 		{name: "gemini explicit fallback", model: "gemini-3-1-pro", expectedInput: 2e-6},
 		{name: "gemini unknown no fallback", model: "gemini-2.0-pro", expectNilPricing: true},
 		{name: "openai gpt5.4", model: "gpt-5.4", expectedInput: 2.5e-6},
@@ -690,7 +690,7 @@ func TestCalculateCostWithLongContext_AboveThreshold_CacheBelowThreshold(t *test
 	require.True(t, cost.ActualCost > 0, "费用应大于 0")
 
 	// 正常费用不含长上下文
-	normalCost, _ := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
+	normalCost, _ := svc.calculateCostWithServiceTierPolicy("claude-sonnet-4", tokens, 1.0, "", false)
 	require.True(t, cost.ActualCost > normalCost.ActualCost, "长上下文费用应高于正常费用")
 }
 
@@ -1085,9 +1085,9 @@ func TestCalculateCost_LargeTokenCount(t *testing.T) {
 	cost, err := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
 	require.NoError(t, err)
 
-	// Input: 1M * 3e-6 = $3, Output: 1M * 15e-6 = $15
-	require.InDelta(t, 3.0, cost.InputCost, 1e-6)
-	require.InDelta(t, 15.0, cost.OutputCost, 1e-6)
+	// Sonnet 4 applies its long-context prices to the entire request above 200k.
+	require.InDelta(t, 6.0, cost.InputCost, 1e-6)
+	require.InDelta(t, 22.5, cost.OutputCost, 1e-6)
 	require.False(t, math.IsNaN(cost.TotalCost))
 	require.False(t, math.IsInf(cost.TotalCost, 0))
 }
@@ -1168,13 +1168,15 @@ func TestCalculateCostWithServiceTier_Gpt54NanoFlexAppliesHalfMultiplier(t *test
 }
 
 func TestCalculateCostWithServiceTier_PriorityFallsBackToTierMultiplierWithoutExplicitPriorityPrice(t *testing.T) {
-	svc := newTestBillingService()
+	svc := NewBillingService(&config.Config{}, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"test-tier-model": {InputCostPerToken: 3e-6, OutputCostPerToken: 15e-6, CacheCreationInputTokenCost: 3.75e-6, CacheReadInputTokenCost: 0.3e-6},
+	}})
 	tokens := UsageTokens{InputTokens: 120, OutputTokens: 30, CacheCreationTokens: 12, CacheReadTokens: 8}
 
-	baseCost, err := svc.CalculateCost("claude-sonnet-4", tokens, 1.0)
+	baseCost, err := svc.CalculateCost("test-tier-model", tokens, 1.0)
 	require.NoError(t, err)
 
-	priorityCost, err := svc.CalculateCostWithServiceTier("claude-sonnet-4", tokens, 1.0, "priority")
+	priorityCost, err := svc.CalculateCostWithServiceTier("test-tier-model", tokens, 1.0, "priority")
 	require.NoError(t, err)
 
 	require.InDelta(t, baseCost.InputCost*2, priorityCost.InputCost, 1e-10)

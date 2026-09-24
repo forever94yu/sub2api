@@ -913,7 +913,7 @@ func TestGatewayService_AnthropicOAuthMimic_RewritesSystemWithBillingBlock(t *te
 				require.Truef(t, anthropicBetaTokensContains(finalBeta, beta), "missing mimic beta %s", beta)
 			}
 			require.False(t, anthropicBetaTokensContains(finalBeta, "client-only-beta"))
-			for key, value := range claude.DefaultHeaders {
+			for key, value := range claude.DefaultHeaders() {
 				require.Equal(t, value, getHeaderRaw(upstream.lastReq.Header, key), "mimic fingerprint header %s", key)
 			}
 			require.NotEmpty(t, getHeaderRaw(upstream.lastReq.Header, "x-client-request-id"))
@@ -1309,7 +1309,7 @@ func TestGatewayService_ParseSSEUsagePassthrough_MessageDeltaSelectiveOverwrite(
 	require.Equal(t, 8, usage.CacheCreationInputTokens)
 	require.Equal(t, 11, usage.CacheReadInputTokens, "cache_read_input_tokens 为空时应回退到 cached_tokens")
 	require.Equal(t, 1, usage.CacheCreation5mTokens)
-	require.Equal(t, 6, usage.CacheCreation1hTokens, "message_delta 中 0 值不应覆盖已有 1h 明细")
+	require.Equal(t, 0, usage.CacheCreation1hTokens, "explicit zero replaces the prior 1h usage")
 }
 
 func TestGatewayService_ParseSSEUsagePassthrough_NoopCases(t *testing.T) {

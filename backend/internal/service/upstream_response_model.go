@@ -22,10 +22,12 @@ const (
 // where a conflict flag makes billing fall back to the baseline model
 // (see responseModelBillingDeclaration).
 type upstreamResponseModelObserver struct {
-	first       string
-	terminal    string
-	conflict    bool
-	serviceTier openai.ServiceTierObserver
+	first                 string
+	terminal              string
+	conflict              bool
+	serviceTier           openai.ServiceTierObserver
+	anthropicSpeed        string
+	anthropicInferenceGeo string
 }
 
 func (o *upstreamResponseModelObserver) Observe(model string, terminal bool) {
@@ -74,6 +76,25 @@ func (o *upstreamResponseModelObserver) OpenAIServiceTier(fallback *string) *str
 func (o *upstreamResponseModelObserver) ObserveAnthropic(payload []byte) {
 	model := firstValidTrimmedGJSONModel(payload, "message.model", "model")
 	o.Observe(model, false)
+	// message_delta may update the actual processing mode without a model field.
+	if speed := firstValidTrimmedGJSONModel(payload, "usage.speed", "message.usage.speed"); speed != "" {
+		switch speed = strings.ToLower(speed); speed {
+		case "fast", "standard":
+			o.anthropicSpeed = speed
+		}
+	}
+	if geo := normalizeAnthropicInferenceGeo(firstValidTrimmedGJSONModel(payload, "usage.inference_geo", "message.usage.inference_geo")); geo != "" {
+		o.anthropicInferenceGeo = geo
+	}
+}
+
+func normalizeAnthropicInferenceGeo(raw string) string {
+	switch geo := strings.ToLower(strings.TrimSpace(raw)); geo {
+	case "us", "global":
+		return geo
+	default:
+		return ""
+	}
 }
 
 func (o *upstreamResponseModelObserver) ObserveGemini(payload []byte) {

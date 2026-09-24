@@ -1135,6 +1135,24 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it("submits Claude client version controls without overwriting the synced version", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      claude_code_client_version: " 2.1.280 ",
+      claude_code_client_version_synced: "2.1.281",
+      claude_code_version_auto_sync_enabled: false,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      claude_code_client_version: "2.1.280",
+      claude_code_version_auto_sync_enabled: false,
+    }));
+    expect(updateSettings.mock.calls[0][0]).not.toHaveProperty("claude_code_client_version_synced");
+  });
+
   it("submits Claude OAuth system prompt injection gateway settings", async () => {
     const blocks = `[{"type":"text","text":"custom block","cache_control":true}]`;
     getSettings.mockResolvedValueOnce({
