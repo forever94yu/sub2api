@@ -24,11 +24,12 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	validationModel := parsed.Model
-	if account != nil && account.Type == AccountTypeAPIKey {
+	if account != nil && (account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount) {
 		validationModel = account.GetMappedModel(validationModel)
 	}
-	if account != nil && account.Platform == PlatformAnthropic && !account.IsBedrock() && account.Type != AccountTypeServiceAccount {
-		if err := validateClaudeOpus55Request(parsed.Body.Bytes(), validationModel); err != nil {
+	if account != nil && account.Platform == PlatformAnthropic && !account.IsBedrock() &&
+		(account.Type != AccountTypeServiceAccount || claude.IsSonnet55(validationModel)) {
+		if err := validateClaudeModelRequest(parsed.Body.Bytes(), validationModel); err != nil {
 			s.countTokensError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return err
 		}
@@ -105,12 +106,12 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 应用模型映射：
-	// - APIKey 账号：使用账号级别的显式映射（如果配置），否则透传原始模型名
+	// - APIKey/Vertex 账号：使用账号级别的显式映射（如果配置）
 	// - OAuth/SetupToken 账号：使用 Anthropic 标准映射（短ID → 长ID）
 	if reqModel != "" {
 		mappedModel := reqModel
 		mappingSource := ""
-		if account.Type == AccountTypeAPIKey {
+		if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 			mappedModel = account.GetMappedModel(reqModel)
 			if mappedModel != reqModel {
 				mappingSource = "account"
@@ -123,6 +124,9 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 				mappingSource = "prefix"
 			}
 		}
+		if account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
+			mappedModel = normalizeVertexAnthropicModelID(mappedModel)
+		}
 		if mappedModel != reqModel {
 			originalReqModel := reqModel
 			if err := replaceBody(s.replaceModelInBody(body, mappedModel)); err != nil {
@@ -132,6 +136,12 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			parsed.Model = mappedModel
 			logger.LegacyPrintf("service.gateway", "CountTokens model mapping applied: %s -> %s (account: %s, source=%s)", originalReqModel, mappedModel, account.Name, mappingSource)
 		}
+	}
+
+	if account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount &&
+		!vertexCountTokensLocationSupported(account.VertexLocation(reqModel)) {
+		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported in Vertex location "+account.VertexLocation(reqModel))
+		return nil
 	}
 
 	// 获取凭证
@@ -448,6 +458,9 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 // buildCountTokensRequest 构建 count_tokens 上游请求
 func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token, tokenType, modelID string, mimicClaudeCode bool) (*http.Request, []byte, error) {
 	body = stripDeferredToolCacheControl(body)
+	if account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
+		return s.buildCountTokensRequestAnthropicVertex(ctx, c, account, body, token, modelID)
+	}
 	// 确定目标 URL
 	targetURL := claudeAPICountTokensURL
 	if account.Type == AccountTypeAPIKey {

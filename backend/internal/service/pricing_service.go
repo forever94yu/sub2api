@@ -837,19 +837,21 @@ func (s *PricingService) buildModelLookupCandidates(modelLower string) []string 
 		lastSegment(strings.TrimPrefix(modelLower, "models/")),
 	}
 	normalized := normalizeModelNameForPricing(modelLower)
+	canonicalClaude := canonicalClaudeModelForPricing(modelLower)
 
 	// A tier-specific entry should take precedence when the pricing catalog gains
 	// one later. Today Antigravity's Gemini 3.6 Flash tiers share the base rate,
 	// so the normalized base remains the fallback after the exact aliases.
+	// Claude provider resource names also retain their explicit price first.
 	candidates := rawCandidates
-	if normalizeGeminiThinkingTierAlias(lastSegment(modelLower)) != lastSegment(modelLower) {
+	if canonicalClaude != "" || normalizeGeminiThinkingTierAlias(lastSegment(modelLower)) != lastSegment(modelLower) {
 		candidates = append(candidates, normalized)
 	} else {
 		// Prefer canonical model names for all other aliases (including models/xxx).
 		candidates = append([]string{normalized}, candidates...)
 	}
-	if canonical := canonicalClaudeModelForPricing(modelLower); canonical != "" {
-		candidates = append(candidates, canonical)
+	if canonicalClaude != "" {
+		candidates = append(candidates, canonicalClaude)
 	}
 
 	seen := make(map[string]struct{}, len(candidates))

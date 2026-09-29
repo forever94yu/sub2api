@@ -384,6 +384,9 @@ func (s *GatewayService) getBetaHeader(modelID string, clientBetaHeader string) 
 	if strings.Contains(strings.ToLower(modelID), "haiku") {
 		return claude.HaikuBetaHeader
 	}
+	if claude.IsSonnet55(modelID) {
+		return stripBetaTokens(claude.DefaultBetaHeader, []string{claude.BetaFineGrainedToolStreaming})
+	}
 
 	return claude.DefaultBetaHeader
 }
@@ -404,6 +407,10 @@ func defaultAPIKeyBetaHeader(body []byte) string {
 	modelID := gjson.GetBytes(body, "model").String()
 	if strings.Contains(strings.ToLower(modelID), "haiku") {
 		return claude.APIKeyHaikuBetaHeader
+	}
+	// The modern computer/browser toolsets reject this legacy beta on Sonnet 5.5.
+	if claude.IsSonnet55(modelID) {
+		return stripBetaTokens(claude.APIKeyBetaHeader, []string{claude.BetaFineGrainedToolStreaming})
 	}
 	return claude.APIKeyBetaHeader
 }

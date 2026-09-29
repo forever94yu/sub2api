@@ -1,14 +1,16 @@
 package claude
 
 import (
+	"regexp"
 	"strings"
-	"unicode"
 )
 
 var (
 	effortLowMediumHigh         = []string{"low", "medium", "high"}
 	effortLowMediumHighMax      = []string{"low", "medium", "high", "max"}
 	effortLowMediumHighXHighMax = []string{"low", "medium", "high", "xhigh", "max"}
+	effortModelDateSuffix       = regexp.MustCompile(`(?:-\d{8}|@\d{8})$`)
+	effortModelVersionSuffix    = regexp.MustCompile(`-v\d+(?::\d+)?$`)
 )
 
 var effortFamilies = []struct {
@@ -45,31 +47,30 @@ func IsOpus55(model string) bool {
 	return normalizeEffortModelID(model) == "claude-opus-5-5"
 }
 
+// IsSonnet55 matches the fixed Sonnet 5.5 version, including known provider wrappers.
+func IsSonnet55(model string) bool {
+	return normalizeEffortModelID(model) == "claude-sonnet-5-5"
+}
+
+// HasAdaptiveThinkingDefault identifies models whose signed thinking must be
+// preserved even when the request omits its thinking configuration.
+func HasAdaptiveThinkingDefault(model string) bool {
+	return IsOpus55(model) || IsSonnet55(model)
+}
+
 func normalizeEffortModelID(model string) string {
 	id := strings.ToLower(strings.TrimSpace(model))
-	id = strings.TrimPrefix(id, "models/")
-	if slash := strings.IndexByte(id, '/'); slash >= 0 {
-		id = strings.TrimPrefix(strings.TrimSpace(id[slash+1:]), "models/")
+	if slash := strings.LastIndexByte(id, '/'); slash >= 0 {
+		id = strings.TrimSpace(id[slash+1:])
 	}
-	id = strings.TrimPrefix(id, "anthropic.")
-	id = strings.TrimSuffix(id, "-thinking")
+	for _, prefix := range []string{"us.anthropic.", "eu.anthropic.", "apac.anthropic.", "global.anthropic.", "anthropic."} {
+		id = strings.TrimPrefix(id, prefix)
+	}
+	id = strings.TrimSuffix(strings.TrimSuffix(id, "-thinking"), "-latest")
+	id = effortModelVersionSuffix.ReplaceAllString(id, "")
+	id = effortModelDateSuffix.ReplaceAllString(id, "")
 	if mapped, ok := ModelIDReverseOverrides[id]; ok {
 		id = mapped
 	}
-	if len(id) >= 9 {
-		suffix := id[len(id)-9:]
-		if suffix[0] == '-' {
-			digits := true
-			for _, r := range suffix[1:] {
-				if !unicode.IsDigit(r) {
-					digits = false
-					break
-				}
-			}
-			if digits {
-				id = id[:len(id)-9]
-			}
-		}
-	}
-	return id
+	return strings.ReplaceAll(id, ".", "-")
 }

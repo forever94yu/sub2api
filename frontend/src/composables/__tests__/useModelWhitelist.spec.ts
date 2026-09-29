@@ -4,9 +4,29 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { allModels, buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
+  it('makes Sonnet 5.5 selectable in Claude model lists', () => {
+    expect(getModelsByPlatform('claude')).toContain('claude-sonnet-5-5')
+    expect(getModelsByPlatform('anthropic')).toContain('claude-sonnet-5-5')
+    expect(allModels.filter(model => model.value === 'claude-sonnet-5-5')).toEqual([
+      { value: 'claude-sonnet-5-5', label: 'claude-sonnet-5-5' }
+    ])
+  })
+
+  it.each([
+    ['claude', 'claude-sonnet-5-5'],
+    ['anthropic', 'claude-sonnet-5-5'],
+    ['bedrock', 'anthropic.claude-sonnet-5-5']
+  ])('saves the official Sonnet 5.5 preset for %s accounts', (platform, target) => {
+    const preset = getPresetMappingsByPlatform(platform).find(mapping => mapping.from === 'claude-sonnet-5-5')
+    expect(preset).toBeDefined()
+    expect(buildModelMappingObject('mapping', [], preset ? [preset] : [])).toEqual({
+      'claude-sonnet-5-5': target
+    })
+  })
+
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
     const models = getModelsByPlatform('openai')
 

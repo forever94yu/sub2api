@@ -27,6 +27,7 @@ var claudeOfficialRates = []struct {
 	{"claude-opus-4-1", 15, 75, 1.5},
 	{"claude-opus-4", 15, 75, 1.5},
 	{"claude-3-opus", 15, 75, 1.5},
+	{"claude-sonnet-5-5", 2, 10, 0.2},
 	{"claude-sonnet-5", 2, 10, 0.2},
 	{"claude-sonnet-4-6", 3, 15, 0.3},
 	{"claude-sonnet-4-5", 3, 15, 0.3},
@@ -141,7 +142,7 @@ func TestClaudePricingRegressionExplicitProviderAndCustomPricesWin(t *testing.T)
 func TestClaudePricingRegressionLongContextBoundary(t *testing.T) {
 	for _, dynamic := range []*PricingService{nil, newClaudeCatalogPricingService(t)} {
 		svc := NewBillingService(&config.Config{}, dynamic)
-		for _, model := range []string{"claude-sonnet-4", "claude-sonnet-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-opus-4-6", "claude-opus-5-5", "claude-fable-5-1"} {
+		for _, model := range []string{"claude-sonnet-4", "claude-sonnet-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-4-6", "claude-opus-5-5", "claude-fable-5-1"} {
 			for _, inputTokens := range []int{100000, 100001} {
 				pricing, err := svc.GetModelPricing(model)
 				require.NoError(t, err)
@@ -186,7 +187,7 @@ func TestClaudePricingRegressionCacheBreakdownConsistency(t *testing.T) {
 func TestClaudePricingRegressionFastAndPriorityAreDifferent(t *testing.T) {
 	svc := NewBillingService(&config.Config{}, newClaudeCatalogPricingService(t))
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 100, CacheCreationTokens: 500, CacheCreation5mTokens: 200, CacheCreation1hTokens: 300, CacheReadTokens: 5000}
-	for _, model := range []string{"claude-opus-4-8", "claude-opus-5", "claude-opus-5-5", "claude-opus-4-7", "claude-opus-4-6", "claude-fable-5-1", "claude-sonnet-5"} {
+	for _, model := range []string{"claude-opus-4-8", "claude-opus-5", "claude-opus-5-5", "claude-opus-4-7", "claude-opus-4-6", "claude-fable-5-1", "claude-sonnet-5", "claude-sonnet-5-5"} {
 		t.Run(model, func(t *testing.T) {
 			standard, err := svc.CalculateCost(model, tokens, 1.5)
 			require.NoError(t, err)

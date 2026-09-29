@@ -67,7 +67,7 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
-	if err := validateClaudeOpus55Request(body, mappedModel); err != nil {
+	if err := validateClaudeModelRequest(body, mappedModel); err != nil {
 		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (s *GatewayService) ForwardAsResponses(
 	responsesReq.Model = mappedModel
 	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
 	if err != nil {
-		if claude.IsOpus55(mappedModel) {
+		if claude.HasAdaptiveThinkingDefault(mappedModel) {
 			writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		}
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
@@ -342,7 +342,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	}
 
 	// Convert to Responses format
-	if claude.IsOpus55(mappedModel) {
+	if claude.HasAdaptiveThinkingDefault(mappedModel) {
 		finalResp.Model = mappedModel
 	}
 	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
@@ -405,7 +405,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = originalModel
-	state.PreserveThinkingSignatures = claude.IsOpus55(mappedModel)
+	state.PreserveThinkingSignatures = claude.HasAdaptiveThinkingDefault(mappedModel)
 	clientToolRestorer := apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
 	var usage ClaudeUsage
 	var firstTokenMs *int

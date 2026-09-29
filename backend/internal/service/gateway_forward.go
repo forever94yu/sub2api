@@ -97,8 +97,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if account != nil && (account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount || account.IsBedrock()) {
 		validationModel = account.GetMappedModel(validationModel)
 	}
-	if account != nil && account.Platform == PlatformAnthropic && !account.IsBedrock() && account.Type != AccountTypeServiceAccount {
-		if err := validateClaudeOpus55Request(parsed.Body.Bytes(), validationModel); err != nil {
+	if account != nil && account.Platform == PlatformAnthropic && ((!account.IsBedrock() && account.Type != AccountTypeServiceAccount) || claude.IsSonnet55(validationModel)) {
+		if err := validateClaudeModelRequest(parsed.Body.Bytes(), validationModel); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
 			return nil, err
 		}

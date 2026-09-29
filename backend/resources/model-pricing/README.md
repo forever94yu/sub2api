@@ -53,6 +53,7 @@ input pricing; one-hour writes cost twice input pricing.
 | Opus 5.5 | 4 | 20 | 0.20 |
 | Opus 5 / 4.8 / 4.7 / 4.6 / 4.5 | 5 | 25 | 0.50 |
 | Opus 4.1 / 4 / 3 | 15 | 75 | 1.50 |
+| Sonnet 5.5 (verified 2026-09-29) | 2 | 10 | 0.20 |
 | Sonnet 5 | 2 | 10 | 0.20 |
 | Sonnet 4.6 / 4.5 / 4 / 3.7 / 3.5 | 3 | 15 | 0.30 |
 | Haiku 4.5 | 1 | 5 | 0.10 |
@@ -66,6 +67,21 @@ inference costs 1.1x for supported 4.6+ models. These modifiers stack, and
 response declarations can lower a requested premium but cannot raise it.
 Partner endpoint prices may be configured explicitly and are resolved before
 native aliases. Unknown Claude versions require explicit pricing.
+
+### Sonnet 5.5 (2026-09-29)
+
+The [official model overview](https://platform.claude.com/docs/en/models/sonnet-5-5/overview)
+and [pricing documentation](https://platform.claude.com/docs/en/about-claude/pricing)
+confirm $2 input, $10 output, $2.50 five-minute cache writes, $4 one-hour cache
+writes, and $0.20 cache reads per million tokens. The full 1M-token context
+window uses these standard rates. US-only inference adds 10%; Fast pricing
+does not apply to Sonnet 5.5.
+
+The official model ID is `claude-sonnet-5-5`; Bedrock uses
+`anthropic.claude-sonnet-5-5`, and Google Cloud uses `claude-sonnet-5-5`.
+These IDs have no date or `-v1` suffix. Bundled pricing fills missing entries
+in older remote or persisted snapshots. Explicit provider and administrator
+prices retain precedence, and Sonnet 5 and 5.5 remain distinct model versions.
 
 ## GPT-6 Sol and Luna
 

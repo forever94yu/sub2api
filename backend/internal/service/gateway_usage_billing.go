@@ -356,6 +356,18 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
+	if p.Cost != nil && p.Account != nil && p.Account.Platform == PlatformAnthropic {
+		// Fingerprint the raw amounts first, then use one settled debit for the
+		// log, legacy writes, caches, and notifications without mutating the caller.
+		settledCost := *p.Cost
+		settledCost.ActualCost = QuantizeUsageBillingAmount(settledCost.ActualCost)
+		settledParams := *p
+		settledParams.Cost = &settledCost
+		p = &settledParams
+		if usageLog != nil {
+			usageLog.ActualCost = settledCost.ActualCost
+		}
+	}
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
 		postUsageBilling(ctx, p, deps)
 		return true, nil

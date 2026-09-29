@@ -239,6 +239,7 @@ func (s *BillingService) initFallbackPricing() {
 		{"claude-opus-4-1", 15, 75, 1.5},
 		{"claude-opus-4", 15, 75, 1.5},
 		{"claude-3-opus", 15, 75, 1.5},
+		{"claude-sonnet-5-5", 2, 10, 0.2},
 		{"claude-sonnet-5", 2, 10, 0.2},
 		{"claude-sonnet-4-6", 3, 15, 0.3},
 		{"claude-sonnet-4-5", 3, 15, 0.3},
@@ -1135,7 +1136,7 @@ func claudeTokenPricingModifiers(model, serviceTier, inferenceGeo string) (strin
 	if strings.EqualFold(strings.TrimSpace(inferenceGeo), "us") {
 		switch canonical {
 		case "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5",
-			"claude-fable-5", "claude-fable-5-1", "claude-sonnet-4-6", "claude-sonnet-5":
+			"claude-fable-5", "claude-fable-5-1", "claude-sonnet-4-6", "claude-sonnet-5", "claude-sonnet-5-5":
 			multiplier *= 1.1
 		}
 	}

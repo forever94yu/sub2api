@@ -68,3 +68,43 @@ func TestClaudeGatewayBillingRegressionResponseModelUsesItsOwnFastEligibility(t 
 	require.NotNil(t, usageRepo.lastLog.ServiceTier)
 	require.Equal(t, "standard", *usageRepo.lastLog.ServiceTier)
 }
+
+func TestClaudeSonnet55ResponseBillingRetainsAuditAndUsesServedModel(t *testing.T) {
+	for _, tt := range []struct {
+		name, requestedModel, responseModel string
+		wantTotal                           float64
+	}{
+		{"opus downgraded to sonnet", "claude-opus-5-5", "claude-sonnet-5-5", 0.0059 * 1.1},
+		{"sonnet unknown response", "claude-sonnet-5-5", "claude-sonnet-5-6", 0.0059 * 1.1},
+		{"sonnet response cannot raise price", "claude-sonnet-5-5", "claude-opus-5-5", 0.0059 * 1.1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			userRepo := &openAIRecordUsageUserRepoStub{}
+			svc := newGatewayRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{})
+			fast := "fast"
+			result := &ForwardResult{
+				RequestID: tt.name, Model: tt.requestedModel, UpstreamModel: tt.requestedModel,
+				UpstreamResponseModel: tt.responseModel, ServiceTier: &fast, InferenceGeo: "us", Duration: time.Second,
+				Usage: ClaudeUsage{InputTokens: 1000, OutputTokens: 200, CacheCreationInputTokens: 500, CacheCreation5mTokens: 200, CacheCreation1hTokens: 300, CacheReadInputTokens: 1000},
+			}
+			err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+				Result: result, APIKey: &APIKey{ID: 1, Quota: 100}, User: &User{ID: 2}, Account: &Account{ID: 3, Platform: PlatformAnthropic},
+				ChannelUsageFields: ChannelUsageFields{BillingModelSource: BillingModelSourceResponse},
+			})
+			require.NoError(t, err)
+			require.NotNil(t, usageRepo.lastLog)
+			require.InDelta(t, tt.wantTotal, usageRepo.lastLog.TotalCost, 1e-12)
+			require.InDelta(t, tt.wantTotal*1.1, userRepo.lastAmount, 1e-12)
+			require.Equal(t, tt.requestedModel, usageRepo.lastLog.Model)
+			require.Equal(t, tt.requestedModel, usageRepo.lastLog.RequestedModel)
+			require.Equal(t, tt.requestedModel, result.UpstreamModel)
+			require.NotNil(t, usageRepo.lastLog.UpstreamResponseModel)
+			require.Equal(t, tt.responseModel, *usageRepo.lastLog.UpstreamResponseModel)
+			if tt.requestedModel == "claude-opus-5-5" {
+				require.NotNil(t, usageRepo.lastLog.ServiceTier)
+				require.Equal(t, "standard", *usageRepo.lastLog.ServiceTier)
+			}
+		})
+	}
+}
