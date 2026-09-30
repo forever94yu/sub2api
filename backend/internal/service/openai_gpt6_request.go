@@ -11,6 +11,20 @@ import (
 
 func validateOpenAIGPT6ChatTools(body []byte) error {
 	model := gjson.GetBytes(body, "model").String()
+	if isOpenAIGPT61SolModel(model) {
+		hasTools := len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0
+		for _, message := range gjson.GetBytes(body, "messages").Array() {
+			role := message.Get("role").String()
+			if role == "tool" || role == "function" || len(message.Get("tool_calls").Array()) > 0 || message.Get("function_call").IsObject() {
+				hasTools = true
+				break
+			}
+		}
+		if hasTools {
+			return fmt.Errorf("%s tool calling requires the Responses API; Chat Completions supports requests without tools", openAIGPT61SolModelID)
+		}
+		return nil
+	}
 	if !isOpenAIGPT6SolLunaModel(model) || strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String()), "none") {
 		return nil
 	}
@@ -27,17 +41,17 @@ func validateOpenAIGPT6ChatTools(body []byte) error {
 	return fmt.Errorf("%s function tools require reasoning_effort=none on Chat Completions; use a Responses-capable upstream to combine tools with reasoning", normalizeKnownOpenAIGPT6Model(model))
 }
 
-// Sol and Luna accept sampling and log probabilities only with reasoning none.
-// Omitted effort uses their medium default. Older model handling is unchanged.
+// GPT-6 Sol and Luna accept sampling only with reasoning none. GPT-6.1 Sol
+// does not accept sampling at any effort. Omitted effort uses medium.
 func normalizeOpenAIGPT6SamplingBody(body []byte, model string) []byte {
-	if !isOpenAIGPT6SolLunaModel(model) {
+	if !isOpenAIGPT6SolLunaModel(model) && !isOpenAIGPT61SolModel(model) {
 		return body
 	}
 	effort := gjson.GetBytes(body, "reasoning.effort").String()
 	if effort == "" {
 		effort = gjson.GetBytes(body, "reasoning_effort").String()
 	}
-	if strings.EqualFold(strings.TrimSpace(effort), "none") {
+	if !isOpenAIGPT61SolModel(model) && strings.EqualFold(strings.TrimSpace(effort), "none") {
 		return body
 	}
 	for _, field := range []string{"temperature", "top_p", "top_logprobs", "logprobs"} {

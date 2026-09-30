@@ -10,16 +10,18 @@ import (
 // explicit capabilities remain authoritative, including optional null values.
 func fillGPT6SolLunaCodexModel(model map[string]json.RawMessage, target string) bool {
 	modelID := normalizeKnownOpenAIGPT6Model(target)
-	if !isOpenAIGPT6SolLunaModel(modelID) {
+	if !isOpenAIGPT6SolLunaModel(modelID) && !isOpenAIGPT61SolModel(modelID) {
 		return false
 	}
 	displayName := "GPT-6 Sol"
-	if modelID == "gpt-6-luna" {
+	switch modelID {
+	case "gpt-6-luna":
 		displayName = "GPT-6 Luna"
+	case openAIGPT61SolModelID:
+		displayName = "GPT-6.1 Sol"
 	}
 	displayJSON, _ := json.Marshal(displayName)
-	changed := false
-	for field, value := range map[string]string{
+	defaults := map[string]string{
 		"display_name":                 string(displayJSON),
 		"context_window":               `1050000`,
 		"max_context_window":           `1050000`,
@@ -34,7 +36,18 @@ func fillGPT6SolLunaCodexModel(model map[string]json.RawMessage, target string) 
 			{"effort":"xhigh","description":"Extra high reasoning effort"},
 			{"effort":"max","description":"Maximum reasoning effort"}
 		]`,
-	} {
+	}
+	if modelID == openAIGPT61SolModelID {
+		defaults["supported_reasoning_levels"] = `[
+			{"effort":"low","description":"Low reasoning effort"},
+			{"effort":"medium","description":"Medium reasoning effort"},
+			{"effort":"high","description":"High reasoning effort"},
+			{"effort":"xhigh","description":"Extra high reasoning effort"},
+			{"effort":"max","description":"Maximum reasoning effort"}
+		]`
+	}
+	changed := false
+	for field, value := range defaults {
 		if _, exists := model[field]; exists {
 			continue
 		}

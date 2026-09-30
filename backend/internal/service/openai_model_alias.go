@@ -2,14 +2,17 @@ package service
 
 import "strings"
 
-const openAIGPT6AstraModelID = "gpt-6-astra"
+const (
+	openAIGPT6AstraModelID = "gpt-6-astra"
+	openAIGPT61SolModelID  = "gpt-6.1-sol"
+)
 
 // GPT-6 identities are exact: provider namespaces and case are harmless, but
 // dates, effort suffixes and spelling variants are not official model aliases.
 func normalizeKnownOpenAIGPT6Model(model string) string {
 	modelID := strings.ToLower(strings.TrimSpace(lastOpenAIModelSegment(model)))
 	switch modelID {
-	case openAIGPT6AstraModelID, "gpt-6-sol", "gpt-6-luna":
+	case openAIGPT6AstraModelID, openAIGPT61SolModelID, "gpt-6-sol", "gpt-6-luna":
 		return modelID
 	default:
 		return ""
@@ -23,6 +26,10 @@ func isOpenAIGPT6Model(model string) bool {
 func isOpenAIGPT6SolLunaModel(model string) bool {
 	modelID := normalizeKnownOpenAIGPT6Model(model)
 	return modelID == "gpt-6-sol" || modelID == "gpt-6-luna"
+}
+
+func isOpenAIGPT61SolModel(model string) bool {
+	return normalizeKnownOpenAIGPT6Model(model) == openAIGPT61SolModelID
 }
 
 func lastOpenAIModelSegment(model string) string {
@@ -137,7 +144,10 @@ func normalizeKnownOpenAICodexModel(model string) string {
 }
 
 func isUnsupportedOpenAIGPT6Model(model string) bool {
-	for _, modelID := range []string{openAIGPT6AstraModelID, "gpt-6-sol", "gpt-6-luna"} {
+	if normalizeKnownOpenAIGPT6Model(model) != "" {
+		return false
+	}
+	for _, modelID := range []string{openAIGPT6AstraModelID, openAIGPT61SolModelID, "gpt-6-sol", "gpt-6-luna"} {
 		if isUnsupportedOpenAIGPT6NamedModel(model, modelID) {
 			return true
 		}

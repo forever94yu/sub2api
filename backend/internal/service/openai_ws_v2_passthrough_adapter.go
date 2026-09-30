@@ -681,6 +681,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		}
 		firstClientMessage = liteFirstMessage
 	}
+	originalFirstEfforts := captureOpenAIReasoningEffortInput(firstClientMessage)
 	if hooks != nil && (hooks.MaxReasoningEffort != "" || len(hooks.ReasoningEffortMappings) > 0) {
 		if capped, changed := ApplyOpenAIReasoningEffortPolicy(firstClientMessage, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings); changed {
 			firstClientMessage = capped
@@ -726,7 +727,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		}
 	}
 	capturedSessionModel := openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)
-	firstClientMessage = normalizeAstraReasoningEffortForWS(firstClientMessage, capturedSessionModel, hooks)
+	firstClientMessage = normalizeAstraReasoningEffortForWS(firstClientMessage, capturedSessionModel, hooks, originalFirstEfforts)
 	if capturedSessionModel != "" && capturedSessionModel != strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String()) {
 		firstClientMessage = s.ReplaceModelInBody(firstClientMessage, capturedSessionModel)
 	}
@@ -954,7 +955,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					}
 				}()
 			}
+			var originalEfforts openAIReasoningEffortInput
 			if isResponseCreate {
+				originalEfforts = captureOpenAIReasoningEffortInput(payload)
 				if account.IsOpenAIOAuth() && isOpenAIResponsesLiteWebSocketPayload(payload) {
 					litePayload, _, liteErr := normalizeOpenAIResponsesLiteToolsPayload(payload)
 					if liteErr != nil {
@@ -1017,7 +1020,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				model = capturedSessionModel
 			}
 			if isResponseCreate {
-				payload = normalizeAstraReasoningEffortForWS(payload, model, hooks)
+				payload = normalizeAstraReasoningEffortForWS(payload, model, hooks, originalEfforts)
 			}
 			if isResponseCreate && model != "" && model != strings.TrimSpace(gjson.GetBytes(payload, "model").String()) {
 				payload = s.ReplaceModelInBody(payload, model)

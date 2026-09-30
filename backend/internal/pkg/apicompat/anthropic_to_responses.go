@@ -497,9 +497,8 @@ func ResponsesModelSupportsSamplingParameters(model string, reasoningEffort ...s
 
 // isReasoningModel reports whether model is a reasoning model that does not
 // support sampling parameters (temperature, top_p). GPT-5 behavior remains
-// prefix-based for compatibility; Astra is intentionally exact, with only a
-// provider path prefix accepted, so unsupported Astra variants are not folded
-// into the official model.
+// prefix-based for compatibility; Astra and GPT-6.1 Sol use exact identities,
+// with only a provider path prefix accepted.
 func isReasoningModel(model string) bool {
 	if strings.HasPrefix(model, "gpt-5") {
 		return true
@@ -508,7 +507,7 @@ func isReasoningModel(model string) bool {
 	if idx := strings.LastIndex(model, "/"); idx >= 0 {
 		model = strings.TrimSpace(model[idx+1:])
 	}
-	return model == "gpt-6-astra"
+	return model == "gpt-6-astra" || model == "gpt-6.1-sol"
 }
 
 // normalizeToolParameters ensures the tool parameter schema is valid for

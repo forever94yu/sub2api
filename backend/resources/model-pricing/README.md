@@ -110,3 +110,39 @@ Sources: [Sol](https://developers.openai.com/api/docs/models/gpt-6-sol),
 [Luna](https://developers.openai.com/api/docs/models/gpt-6-luna),
 [pricing](https://developers.openai.com/api/docs/pricing), and
 [GPT-6 API compatibility](https://developers.openai.com/api/docs/guides/latest-model).
+
+## GPT-6.1 Sol
+
+Verified against the official OpenAI documentation on 2026-09-30. This is a
+separate price entry; GPT-6 Sol and all other existing prices are unchanged.
+
+| Model | Input | Cached input | Cache writes | Output |
+| --- | ---: | ---: | ---: | ---: |
+| `gpt-6.1-sol` | $2.00 | $0.10 | $2.50 | $10.00 |
+
+Prices are USD per million tokens. Fast (`priority` or `fast`) uses twice the
+standard rates; Flex uses half. Billing uses the upstream response tier, with
+the forwarded request tier as fallback. Above 272,000 total input tokens,
+including cache reads and writes, the whole request uses 2x input/cache and
+1.5x output rates, subject to existing account and group long-context options.
+Reasoning tokens are included in output usage and are not billed separately.
+
+Protocol conversion retains cache-read and cache-write usage from nested
+details and root-level aliases. Explicit canonical zero values take precedence
+over legacy aliases, so client usage and billing use the same cache buckets.
+
+The context window is 1,050,000 tokens with a maximum output of 128,000 tokens.
+Supported reasoning efforts are `low`, `medium` (default), `high`, `xhigh`, and
+`max`. Unlike GPT-6 Sol, this model does not support `none` or `minimal`; the
+gateway maps those legacy client settings to `low` as recommended by the
+migration guide. Tool calls require a Responses-capable upstream. Native Chat
+Completions supports requests without tools. Sampling and logprob parameters
+are removed for this model.
+
+OpenAI usage logs, quota caches, and notifications record the same eight-decimal
+amount as the existing balance/subscription settlement. Base/component prices
+and the original amount used for retry fingerprints remain unchanged.
+
+Sources: [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol),
+[pricing](https://developers.openai.com/api/docs/pricing), and
+[GPT-6 migration](https://developers.openai.com/api/docs/guides/latest-model).

@@ -14,7 +14,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -264,6 +263,7 @@ type ccStreamScanState struct {
 // emit 回调做各自的协议转换与写出。读错误按既有约定过滤 context 取消类噪声后
 // 记入 Warn 日志。
 func (s *OpenAIGatewayService) scanCCStream(
+	c *gin.Context,
 	resp *http.Response,
 	logPrefix string,
 	requestID string,
@@ -271,7 +271,10 @@ func (s *OpenAIGatewayService) scanCCStream(
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
-	var serviceTier openai.ServiceTierObserver
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
@@ -288,7 +291,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 			st.SawDone = true
 			break
 		}
-		serviceTier.Observe([]byte(payload), "")
+		observer.ObserveOpenAI([]byte(payload), "")
 
 		if u := extractCCStreamUsage(payload); u != nil {
 			st.Usage = *u
@@ -318,7 +321,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 		st.Err = err
 	}
-	st.ServiceTier = serviceTier.Resolve(nil)
+	st.ServiceTier = observer.OpenAIServiceTier(nil)
 	return st
 }
 

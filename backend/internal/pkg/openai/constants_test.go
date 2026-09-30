@@ -14,6 +14,13 @@ func TestDefaultModelsIncludeGPT6Astra(t *testing.T) {
 	require.Contains(t, DefaultModelIDs(), "gpt-6-astra")
 }
 
+func TestDefaultModelsIncludeExactGPT61Sol(t *testing.T) {
+	ids := DefaultModelIDs()
+	require.Contains(t, ids, "gpt-6.1-sol")
+	require.NotContains(t, ids, "gpt-6.1")
+	require.NotContains(t, ids, "gpt-6.1-sol-preview")
+}
+
 func TestDefaultModelsIncludeOfficialGPTImage25Variants(t *testing.T) {
 	ids := DefaultModelIDs()
 	for _, id := range []string{

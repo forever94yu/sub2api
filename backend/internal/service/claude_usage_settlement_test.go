@@ -32,7 +32,7 @@ func TestClaudeSettlementRoundsEveryBillingSink(t *testing.T) {
 		{"exact half", 0.000078125, 0.00007813},
 		{"rounds to zero", 0.000000002, 0},
 	} {
-		for _, platform := range []string{PlatformAnthropic, PlatformOpenAI} {
+		for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini} {
 			for _, legacy := range []bool{false, true} {
 				for _, subscription := range []bool{false, true} {
 					name := amount.name + "/" + platform
@@ -76,7 +76,7 @@ func TestClaudeSettlementRoundsEveryBillingSink(t *testing.T) {
 						require.True(t, applied)
 						require.Equal(t, originalCost, *p.Cost, "the original amount must remain available for retry fingerprints")
 						want := amount.raw
-						if platform == PlatformAnthropic {
+						if platform == PlatformAnthropic || platform == PlatformOpenAI {
 							want = amount.want
 						}
 						require.Equal(t, want, log.ActualCost)

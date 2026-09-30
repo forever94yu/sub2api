@@ -599,7 +599,7 @@ func adjustCodexModelsManifestForAccount(body []byte, useAPIKeyUpstream bool, ac
 		if account != nil {
 			target = account.GetMappedModel(slug)
 		}
-		if isOpenAIGPT6SolLunaModel(target) {
+		if isOpenAIGPT6SolLunaModel(target) || isOpenAIGPT61SolModel(target) {
 			modelChanged = fillGPT6SolLunaCodexModel(model, target)
 		}
 		if slug == "gpt-6-astra" {
@@ -731,7 +731,7 @@ func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Accou
 		if account != nil {
 			target = account.GetMappedModel(id)
 		}
-		if isOpenAIGPT6SolLunaModel(target) {
+		if isOpenAIGPT6SolLunaModel(target) || isOpenAIGPT61SolModel(target) {
 			copyValidatedGPT6SolLunaCodexFields(model, entry)
 			fillGPT6SolLunaCodexModel(model, target)
 		}

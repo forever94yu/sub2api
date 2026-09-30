@@ -75,6 +75,7 @@ func TestGPT6SolLunaForwardUsageAndActualTierBilling(t *testing.T) {
 	}{
 		{"gpt-6-sol", 0.00242},
 		{"gpt-6-luna", 0.000121},
+		{"gpt-6.1-sol", 0.00241},
 	} {
 		for _, path := range []string{"/v1/responses", "/v1/chat/completions", "/v1/messages"} {
 			for _, chat := range []bool{false, true} {
@@ -159,6 +160,7 @@ func TestGPT6SolLunaWebSocketUsageRecordsLongContext(t *testing.T) {
 	}{
 		{"gpt-6-sol", 0.464777},
 		{"gpt-6-luna", 0.02323885},
+		{"gpt-6.1-sol", 0.457577},
 	} {
 		for _, eventType := range []string{"response.completed", "response.done"} {
 			t.Run(model.id+"/"+eventType, func(t *testing.T) {

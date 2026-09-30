@@ -19,8 +19,37 @@ var openAIReasoningEffortValues = []string{"minimal", "low", "medium", "high", "
 type openAIReasoningEffortPolicyContextKey struct{}
 
 type openAIReasoningEffortPolicy struct {
-	maxEffort string
-	mappings  []ReasoningEffortMapping
+	maxEffort       string
+	mappings        []ReasoningEffortMapping
+	originalEfforts openAIReasoningEffortInput
+}
+
+type openAIReasoningEffortInput map[string]string
+
+func captureOpenAIReasoningEffortInput(body []byte) openAIReasoningEffortInput {
+	input := make(openAIReasoningEffortInput, 2)
+	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
+		if value := gjson.GetBytes(body, path); value.Exists() {
+			input[path] = strings.Clone(value.Raw)
+		}
+	}
+	return input
+}
+
+func restoreOpenAIReasoningEffortInput(body []byte, input openAIReasoningEffortInput) []byte {
+	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
+		var updated []byte
+		var err error
+		if value, exists := input[path]; exists {
+			updated, err = sjson.SetRawBytes(body, path, []byte(value))
+		} else {
+			updated, err = sjson.DeleteBytes(body, path)
+		}
+		if err == nil {
+			body = updated
+		}
+	}
+	return body
 }
 
 // NormalizeMaxReasoningEffort validates and canonicalizes a group policy value.
@@ -139,13 +168,17 @@ func NormalizeReasoningEffortMappings(platform string, raw []ReasoningEffortMapp
 // WithOpenAIReasoningEffortPolicy binds a group policy to a request after its
 // concrete target platform has been resolved to OpenAI. The policy is copied so
 // retries and asynchronous forwarding cannot observe later slice mutations.
-func WithOpenAIReasoningEffortPolicy(ctx context.Context, maxEffort string, mappings []ReasoningEffortMapping) context.Context {
+// A pre-policy request body preserves only its effort fields for model aliases.
+func WithOpenAIReasoningEffortPolicy(ctx context.Context, maxEffort string, mappings []ReasoningEffortMapping, requestBody ...[]byte) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	policy := openAIReasoningEffortPolicy{
 		maxEffort: maxEffort,
 		mappings:  append([]ReasoningEffortMapping(nil), mappings...),
+	}
+	if len(requestBody) > 0 {
+		policy.originalEfforts = captureOpenAIReasoningEffortInput(requestBody[0])
 	}
 	return context.WithValue(ctx, openAIReasoningEffortPolicyContextKey{}, policy)
 }
@@ -194,7 +227,11 @@ func sanitizeGroupReasoningEffortPolicy(group *Group) {
 // known effort levels. Omitted values remain untouched so upstream defaults
 // stay in control.
 func ApplyOpenAIReasoningEffortPolicy(body []byte, maxEffort string, mappings []ReasoningEffortMapping) ([]byte, bool) {
-	result, changed := normalizeAstraReasoningEffortBody(body, gjson.GetBytes(body, "model").String())
+	return applyOpenAIReasoningEffortPolicyForModel(body, gjson.GetBytes(body, "model").String(), maxEffort, mappings)
+}
+
+func applyOpenAIReasoningEffortPolicyForModel(body []byte, model, maxEffort string, mappings []ReasoningEffortMapping) ([]byte, bool) {
+	result, changed := normalizeAstraReasoningEffortBody(body, model)
 	maxRank, hasMax := reasoningEffortRank(maxEffort)
 	if len(body) == 0 || (!hasMax && len(mappings) == 0) {
 		return result, changed
@@ -227,6 +264,12 @@ func ApplyOpenAIReasoningEffortPolicy(body []byte, maxEffort string, mappings []
 		}
 		result = updated
 		changed = true
+	}
+	if isOpenAIGPT61SolModel(model) {
+		// A group policy can request minimal, below this model's supported floor.
+		var normalized bool
+		result, normalized = normalizeAstraReasoningEffortBody(result, model)
+		changed = changed || normalized
 	}
 	return result, changed
 }

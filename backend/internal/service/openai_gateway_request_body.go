@@ -1479,6 +1479,12 @@ func normalizeOpenAIReasoningEffort(raw string) string {
 }
 
 func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
+	if isOpenAIGPT61SolModel(model) {
+		switch strings.ToLower(strings.TrimSpace(raw)) {
+		case "none", "minimal":
+			return "low"
+		}
+	}
 	if isOpenAIGPT6SolLunaModel(model) {
 		switch strings.ToLower(strings.TrimSpace(raw)) {
 		case "none":

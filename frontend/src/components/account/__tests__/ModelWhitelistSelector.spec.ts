@@ -67,7 +67,7 @@ describe('ModelWhitelistSelector', () => {
     expect(findModelRow(wrapper, 'gpt-6-astra')).toBeDefined()
   })
 
-  it.each(['gpt-6-sol', 'gpt-6-luna'])('selects %s for OpenAI accounts', async (model) => {
+  it.each(['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'])('selects %s for OpenAI accounts', async (model) => {
     const wrapper = mountSelector()
     await wrapper.get('div.cursor-pointer').trigger('click')
     await findModelRow(wrapper, model).get('[data-testid="select-model"]').trigger('click')

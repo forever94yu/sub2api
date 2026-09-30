@@ -17,7 +17,7 @@ import (
 )
 
 func TestGPT6SolLunaForwardNativeReasoning(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"} {
 		for _, path := range []string{"/v1/responses", "/v1/chat/completions", "/v1/messages"} {
 			for _, rawChat := range []bool{false, true} {
 				for _, effort := range []string{"none", "minimal", "max", "ultra"} {
@@ -31,7 +31,7 @@ func TestGPT6SolLunaForwardNativeReasoning(t *testing.T) {
 						svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
 						result := forwardAstraReasoningTest(t, svc, account, path, "custom-gpt6", effort, context.Background())
 						want := effort
-						if effort == "minimal" {
+						if effort == "minimal" || (model == "gpt-6.1-sol" && effort == "none") {
 							want = "low"
 						} else if effort == "ultra" {
 							want = "max"
@@ -52,7 +52,7 @@ func TestGPT6SolLunaForwardNativeReasoning(t *testing.T) {
 }
 
 func TestGPT6SolLunaForwardSamplingUsesMappedModel(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"} {
 		for _, path := range []string{"/v1/responses", "/v1/chat/completions"} {
 			for _, effort := range []string{"none", "medium", ""} {
 				t.Run(model+path+"/"+effort, func(t *testing.T) {
@@ -77,12 +77,13 @@ func TestGPT6SolLunaForwardSamplingUsesMappedModel(t *testing.T) {
 						_, err = svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
 					}
 					require.NoError(t, err)
+					wantSampling := effort == "none" && model != "gpt-6.1-sol"
 					for _, field := range []string{"temperature", "top_p", "top_logprobs"} {
-						require.Equal(t, effort == "none", gjson.GetBytes(upstream.lastBody, field).Exists(), field)
+						require.Equal(t, wantSampling, gjson.GetBytes(upstream.lastBody, field).Exists(), field)
 					}
 					include := gjson.GetBytes(upstream.lastBody, "include").Raw
 					require.Contains(t, include, "reasoning.encrypted_content")
-					if effort == "none" {
+					if wantSampling {
 						require.Contains(t, include, "message.output_text.logprobs")
 					} else {
 						require.NotContains(t, include, "message.output_text.logprobs")
@@ -94,7 +95,7 @@ func TestGPT6SolLunaForwardSamplingUsesMappedModel(t *testing.T) {
 }
 
 func TestGPT6SolLunaChatToolsRequireNoReasoning(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-5.5"} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-5.5"} {
 		for _, path := range []string{"/v1/responses", "/v1/chat/completions", "/v1/messages"} {
 			for _, effort := range []string{"none", "medium", ""} {
 				t.Run(model+path+"/"+effort, func(t *testing.T) {
@@ -137,11 +138,15 @@ func TestGPT6SolLunaChatToolsRequireNoReasoning(t *testing.T) {
 					default:
 						_, err = svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
 					}
-					if model != "gpt-5.5" && effort != "none" {
+					if model == "gpt-6.1-sol" || (model != "gpt-5.5" && effort != "none") {
 						require.Error(t, err)
 						require.Equal(t, http.StatusBadRequest, recorder.Code)
 						require.Equal(t, "invalid_request_error", gjson.GetBytes(recorder.Body.Bytes(), "error.type").String())
-						require.Contains(t, gjson.GetBytes(recorder.Body.Bytes(), "error.message").String(), "reasoning_effort=none")
+						if model == "gpt-6.1-sol" {
+							require.Contains(t, gjson.GetBytes(recorder.Body.Bytes(), "error.message").String(), "Responses")
+						} else {
+							require.Contains(t, gjson.GetBytes(recorder.Body.Bytes(), "error.message").String(), "reasoning_effort=none")
+						}
 						require.Nil(t, upstream.lastReq)
 					} else {
 						require.NoError(t, err)

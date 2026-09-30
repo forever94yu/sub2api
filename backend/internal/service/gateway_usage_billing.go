@@ -356,7 +356,7 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
-	if p.Cost != nil && p.Account != nil && p.Account.Platform == PlatformAnthropic {
+	if p.Cost != nil && p.Account != nil && (p.Account.Platform == PlatformAnthropic || p.Account.Platform == PlatformOpenAI) {
 		// Fingerprint the raw amounts first, then use one settled debit for the
 		// log, legacy writes, caches, and notifications without mutating the caller.
 		settledCost := *p.Cost

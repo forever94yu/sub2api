@@ -16,6 +16,7 @@ var gpt6SolLunaOfficialRatesForTest = []struct {
 	model                             string
 	input, cached, cacheWrite, output float64
 }{
+	{model: "gpt-6.1-sol", input: 2e-6, cached: 0.1e-6, cacheWrite: 2.5e-6, output: 10e-6},
 	{model: "gpt-6-sol", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 10e-6},
 	{model: "gpt-6-luna", input: 0.1e-6, cached: 0.01e-6, cacheWrite: 0.125e-6, output: 0.5e-6},
 }
@@ -31,6 +32,8 @@ func TestGPT6SolLunaDedicatedPricingFallbacks(t *testing.T) {
 			"gpt-5.6-sol":   openAIGPT56SolFallbackPricing,
 			"gpt-5.6-luna":  openAIGPT56LunaFallbackPricing,
 			"gpt-6-astra":   openAIGPT6AstraFallbackPricing,
+			"gpt-6-sol":     openAIGPT6SolFallbackPricing,
+			"gpt-6-luna":    openAIGPT6LunaFallbackPricing,
 		}},
 	}
 	for _, model := range gpt6SolLunaOfficialRatesForTest {
@@ -99,7 +102,7 @@ func TestGPT6SolLunaBundledPricing(t *testing.T) {
 			require.InDelta(t, model.output*0.5, entry.OutputFlex, 1e-12)
 			require.InDelta(t, model.cached*0.5, entry.CacheReadFlex, 1e-12)
 			require.InDelta(t, model.cacheWrite*0.5, entry.CacheWriteFlex, 1e-12)
-			require.True(t, entry.SupportsNoneReasoningEffort)
+			require.Equal(t, model.model != "gpt-6.1-sol", entry.SupportsNoneReasoningEffort)
 			require.True(t, entry.SupportsXhighReasoningEffort)
 			require.True(t, entry.SupportsMaxReasoningEffort)
 			require.ElementsMatch(t, []string{"/v1/chat/completions", "/v1/batch", "/v1/responses"}, entry.SupportedEndpoints)
@@ -256,6 +259,8 @@ func TestGPT6SolLunaDoesNotChangeExistingOpenAIRates(t *testing.T) {
 		model                             string
 		input, cached, cacheWrite, output float64
 	}{
+		{model: "gpt-6-sol", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 10e-6},
+		{model: "gpt-6-luna", input: 0.1e-6, cached: 0.01e-6, cacheWrite: 0.125e-6, output: 0.5e-6},
 		{model: "gpt-6-astra", input: 10e-6, cached: 1e-6, cacheWrite: 12.5e-6, output: 50e-6},
 		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6},
 		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6},

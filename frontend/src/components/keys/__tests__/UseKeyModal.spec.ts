@@ -619,6 +619,40 @@ describe('UseKeyModal', () => {
     }
   })
 
+  it('exports GPT-6.1 Sol with only supported reasoning variants', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+          Icon: { template: '<span />' }
+        }
+      }
+    })
+    const opencodeTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.opencode')
+    )
+    expect(opencodeTab).toBeDefined()
+    await opencodeTab!.trigger('click')
+
+    const models = JSON.parse(wrapper.get('pre code').text()).provider.openai.models
+    expect(models['gpt-6.1-sol']).toEqual({
+      name: 'GPT-6.1 Sol',
+      limit: { context: 1050000, output: 128000 },
+      options: { store: false },
+      variants: { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
+    })
+    expect(models['gpt-6.1']).toBeUndefined()
+    expect(models['gpt-6.1-sol-preview']).toBeUndefined()
+    expect(models['gpt-6-sol'].variants).toHaveProperty('none')
+    expect(models['gpt-6-luna'].variants).toHaveProperty('none')
+  })
+
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

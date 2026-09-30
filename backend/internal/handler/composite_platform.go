@@ -78,7 +78,7 @@ func applyOpenAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.
 		return body, false
 	}
 	if c != nil && c.Request != nil {
-		c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicy(c.Request.Context(), maxEffort, mappings))
+		c.Request = c.Request.WithContext(service.WithOpenAIReasoningEffortPolicy(c.Request.Context(), maxEffort, mappings, body))
 	}
 	return service.ApplyOpenAIReasoningEffortPolicy(body, maxEffort, mappings)
 }

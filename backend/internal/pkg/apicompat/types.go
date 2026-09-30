@@ -499,13 +499,17 @@ type ResponsesUsage struct {
 func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 	type responsesUsageAlias ResponsesUsage
 	type cacheTokenPresence struct {
-		CacheCreationTokens *int `json:"cache_creation_tokens"`
-		CacheWriteTokens    *int `json:"cache_write_tokens"`
+		CachedTokens        json.RawMessage `json:"cached_tokens"`
+		CacheCreationTokens json.RawMessage `json:"cache_creation_tokens"`
+		CacheWriteTokens    json.RawMessage `json:"cache_write_tokens"`
 	}
 	var aux struct {
 		responsesUsageAlias
 		PromptTokens            int                           `json:"prompt_tokens"`
 		CompletionTokens        int                           `json:"completion_tokens"`
+		CacheReadInputTokens    int                           `json:"cache_read_input_tokens"`
+		CacheReadTokens         int                           `json:"cache_read_tokens"`
+		CachedTokens            int                           `json:"cached_tokens"`
 		CacheCreationTokens     int                           `json:"cache_creation_tokens"`
 		CacheWriteInputTokens   int                           `json:"cache_write_input_tokens"`
 		CacheWriteTokens        int                           `json:"cache_write_tokens"`
@@ -529,15 +533,16 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 	if u.OutputTokens == 0 && aux.CompletionTokens != 0 {
 		u.OutputTokens = aux.CompletionTokens
 	}
-	if u.CacheCreationInputTokens == 0 {
-		switch {
-		case aux.CacheWriteInputTokens > 0:
-			u.CacheCreationInputTokens = aux.CacheWriteInputTokens
-		case aux.CacheCreationTokens > 0:
-			u.CacheCreationInputTokens = aux.CacheCreationTokens
-		case aux.CacheWriteTokens > 0:
-			u.CacheCreationInputTokens = aux.CacheWriteTokens
-		}
+	u.CacheCreationInputTokens = 0
+	switch {
+	case aux.CacheWriteTokens > 0:
+		u.CacheCreationInputTokens = aux.CacheWriteTokens
+	case aux.CacheCreationInputTokens > 0:
+		u.CacheCreationInputTokens = aux.CacheCreationInputTokens
+	case aux.CacheWriteInputTokens > 0:
+		u.CacheCreationInputTokens = aux.CacheWriteInputTokens
+	case aux.CacheCreationTokens > 0:
+		u.CacheCreationInputTokens = aux.CacheCreationTokens
 	}
 	if u.InputTokensDetails == nil && aux.PromptTokensDetails != nil {
 		u.InputTokensDetails = aux.PromptTokensDetails
@@ -545,19 +550,53 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 	if u.OutputTokensDetails == nil && aux.CompletionTokensDetails != nil {
 		u.OutputTokensDetails = aux.CompletionTokensDetails
 	}
-	var canonicalCacheCreationTokens *int
+	var canonicalCachedTokens *int
+	// A null detail is an explicit zero, while an omitted detail allows root aliases.
 	switch {
-	case nestedPresence.InputTokensDetails != nil && nestedPresence.InputTokensDetails.CacheWriteTokens != nil:
-		canonicalCacheCreationTokens = nestedPresence.InputTokensDetails.CacheWriteTokens
-	case nestedPresence.PromptTokensDetails != nil && nestedPresence.PromptTokensDetails.CacheWriteTokens != nil:
-		canonicalCacheCreationTokens = nestedPresence.PromptTokensDetails.CacheWriteTokens
-	case nestedPresence.InputTokensDetails != nil && nestedPresence.InputTokensDetails.CacheCreationTokens != nil:
-		canonicalCacheCreationTokens = nestedPresence.InputTokensDetails.CacheCreationTokens
-	case nestedPresence.PromptTokensDetails != nil && nestedPresence.PromptTokensDetails.CacheCreationTokens != nil:
-		canonicalCacheCreationTokens = nestedPresence.PromptTokensDetails.CacheCreationTokens
+	case nestedPresence.InputTokensDetails != nil && len(nestedPresence.InputTokensDetails.CachedTokens) > 0:
+		canonicalCachedTokens = &aux.InputTokensDetails.CachedTokens
+	case nestedPresence.PromptTokensDetails != nil && len(nestedPresence.PromptTokensDetails.CachedTokens) > 0:
+		canonicalCachedTokens = &aux.PromptTokensDetails.CachedTokens
+	case aux.CacheReadInputTokens > 0:
+		canonicalCachedTokens = &aux.CacheReadInputTokens
+	case aux.CacheReadTokens > 0:
+		canonicalCachedTokens = &aux.CacheReadTokens
+	case aux.CachedTokens > 0:
+		canonicalCachedTokens = &aux.CachedTokens
+	}
+	if canonicalCachedTokens != nil {
+		if u.InputTokensDetails == nil {
+			u.InputTokensDetails = &ResponsesInputTokensDetails{}
+		}
+		u.InputTokensDetails.CachedTokens = max(*canonicalCachedTokens, 0)
+	}
+	var canonicalCacheCreationTokens *int
+	var canonicalCacheWrite bool
+	switch {
+	case nestedPresence.InputTokensDetails != nil && len(nestedPresence.InputTokensDetails.CacheWriteTokens) > 0:
+		canonicalCacheCreationTokens = &aux.InputTokensDetails.CacheWriteTokens
+		canonicalCacheWrite = true
+	case nestedPresence.PromptTokensDetails != nil && len(nestedPresence.PromptTokensDetails.CacheWriteTokens) > 0:
+		canonicalCacheCreationTokens = &aux.PromptTokensDetails.CacheWriteTokens
+		canonicalCacheWrite = true
+	case nestedPresence.InputTokensDetails != nil && len(nestedPresence.InputTokensDetails.CacheCreationTokens) > 0:
+		canonicalCacheCreationTokens = &aux.InputTokensDetails.CacheCreationTokens
+	case nestedPresence.PromptTokensDetails != nil && len(nestedPresence.PromptTokensDetails.CacheCreationTokens) > 0:
+		canonicalCacheCreationTokens = &aux.PromptTokensDetails.CacheCreationTokens
 	}
 	if canonicalCacheCreationTokens != nil {
 		u.CacheCreationInputTokens = max(*canonicalCacheCreationTokens, 0)
+		if u.InputTokensDetails == nil {
+			u.InputTokensDetails = &ResponsesInputTokensDetails{}
+		}
+		// Keep aliases consistent so later conversions cannot revive a lower-priority value.
+		u.InputTokensDetails.CacheCreationTokens = 0
+		u.InputTokensDetails.CacheWriteTokens = 0
+		if canonicalCacheWrite {
+			u.InputTokensDetails.CacheWriteTokens = u.CacheCreationInputTokens
+		} else {
+			u.InputTokensDetails.CacheCreationTokens = u.CacheCreationInputTokens
+		}
 	}
 	if u.TotalTokens == 0 && (u.InputTokens != 0 || u.OutputTokens != 0) {
 		u.TotalTokens = u.InputTokens + u.OutputTokens
@@ -753,6 +792,35 @@ type ChatUsage struct {
 	TotalTokens             int               `json:"total_tokens"`
 	PromptTokensDetails     *ChatTokenDetails `json:"prompt_tokens_details,omitempty"`
 	CompletionTokensDetails *ChatTokenDetails `json:"completion_tokens_details,omitempty"`
+}
+
+func (u *ChatUsage) UnmarshalJSON(data []byte) error {
+	type chatUsageAlias ChatUsage
+	var decoded chatUsageAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var normalized ResponsesUsage
+	if err := json.Unmarshal(data, &normalized); err != nil {
+		return err
+	}
+	*u = ChatUsage(decoded)
+	canonical := chatUsageFromResponsesUsage(&normalized).PromptTokensDetails
+	if canonical == nil {
+		if u.PromptTokensDetails != nil {
+			u.PromptTokensDetails.CachedTokens = 0
+			u.PromptTokensDetails.CacheCreationTokens = 0
+			u.PromptTokensDetails.CacheWriteTokens = 0
+		}
+		return nil
+	}
+	if u.PromptTokensDetails == nil {
+		u.PromptTokensDetails = &ChatTokenDetails{}
+	}
+	u.PromptTokensDetails.CachedTokens = canonical.CachedTokens
+	u.PromptTokensDetails.CacheCreationTokens = canonical.CacheCreationTokens
+	u.PromptTokensDetails.CacheWriteTokens = canonical.CacheWriteTokens
+	return nil
 }
 
 // ChatTokenDetails provides a breakdown of token usage. The same type is
