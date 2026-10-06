@@ -60,3 +60,58 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, closed)
 }
+
+func TestGatewayCacheLiveCallBillingSnapshotRoundTrip(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		snapshot *service.LiveAPIKeyBillingSnapshot
+	}{
+		{name: "capped", snapshot: &service.LiveAPIKeyBillingSnapshot{Quota: 10, RateLimit5h: 2, RateLimit1d: 3, RateLimit7d: 4}},
+		{name: "unlimited", snapshot: &service.LiveAPIKeyBillingSnapshot{}},
+		{name: "pre_upgrade"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			redisServer := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+			t.Cleanup(func() { _ = client.Close() })
+			first, ok := NewGatewayCache(client).(service.LiveCallStore)
+			require.True(t, ok)
+			second, ok := NewGatewayCache(client).(service.LiveCallStore)
+			require.True(t, ok)
+			record := &service.LiveCallRecord{
+				CallID: "call_secret", CallHash: HashLiveCallID("call_secret"), APIKeyID: 22,
+				APIKeyBilling: tc.snapshot, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour),
+			}
+			require.NoError(t, first.SaveLiveCall(context.Background(), record, time.Hour))
+			loaded, err := second.GetLiveCall(context.Background(), record.CallHash)
+			require.NoError(t, err)
+			require.Equal(t, tc.snapshot, loaded.APIKeyBilling)
+			fields, err := client.HGetAll(context.Background(), liveCallKey(record.CallHash)).Result()
+			require.NoError(t, err)
+			require.NotContains(t, fields, "api_key")
+			if tc.snapshot != nil {
+				require.Contains(t, fields, "api_key_quota")
+				require.Contains(t, fields, "api_key_rate_limit_7d")
+			} else {
+				require.NotContains(t, fields, "api_key_quota")
+			}
+		})
+	}
+}
+
+func TestGatewayCacheLiveCallIncompleteBillingSnapshotUsesLegacyFallback(t *testing.T) {
+	redisServer := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	cache, ok := NewGatewayCache(client).(service.LiveCallStore)
+	require.True(t, ok)
+	record := &service.LiveCallRecord{
+		CallID: "call_secret", CallHash: HashLiveCallID("call_secret"),
+		APIKeyBilling: &service.LiveAPIKeyBillingSnapshot{Quota: 10},
+	}
+	require.NoError(t, cache.SaveLiveCall(context.Background(), record, time.Hour))
+	require.NoError(t, client.HDel(context.Background(), liveCallKey(record.CallHash), "api_key_rate_limit_1d").Err())
+	loaded, err := cache.GetLiveCall(context.Background(), record.CallHash)
+	require.NoError(t, err)
+	require.Nil(t, loaded.APIKeyBilling)
+}

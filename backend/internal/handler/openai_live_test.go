@@ -92,6 +92,25 @@ func TestLiveEnabledForAPIKey(t *testing.T) {
 	}))
 }
 
+func TestLiveCallIdentitySnapshotsAPIKeyBillingLimits(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/live", nil)
+	for _, key := range []*service.APIKey{
+		{ID: 22, Quota: 10, RateLimit5h: 2, RateLimit1d: 3, RateLimit7d: 4},
+		{ID: 23},
+	} {
+		identity := liveCallIdentity(c, key, 33, nil)
+		require.NotNil(t, identity.APIKeyBilling)
+		require.Equal(t, &service.LiveAPIKeyBillingSnapshot{
+			Quota: key.Quota, RateLimit5h: key.RateLimit5h, RateLimit1d: key.RateLimit1d, RateLimit7d: key.RateLimit7d,
+		}, identity.APIKeyBilling)
+		originalQuota := identity.APIKeyBilling.Quota
+		key.Quota = 99
+		require.Equal(t, originalQuota, identity.APIKeyBilling.Quota)
+	}
+}
+
 func TestLiveAttestationErrorIsExplicit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

@@ -296,6 +296,7 @@ func TestFinalizeLiveCallIsIdempotentAndBillsRealtimeUsage(t *testing.T) {
 		CallHash:        hashLiveCallID("call_secret"),
 		AccountID:       11,
 		APIKeyID:        22,
+		APIKeyBilling:   &LiveAPIKeyBillingSnapshot{Quota: 10, RateLimit5h: 2},
 		UserID:          33,
 		GroupID:         44,
 		LeaseID:         "lease-1",
@@ -315,6 +316,7 @@ func TestFinalizeLiveCallIsIdempotentAndBillsRealtimeUsage(t *testing.T) {
 		concurrencyService: NewConcurrencyService(concurrencyCache),
 		usageLogRepo:       usageRepo,
 		usageBillingRepo:   billingRepo,
+		apiKeyService:      &APIKeyService{apiKeyRepo: &liveBillingAPIKeyRepo{err: ErrAPIKeyNotFound}},
 		billingService:     NewBillingService(&config.Config{}, nil),
 		cfg:                &config.Config{},
 	}
@@ -349,6 +351,8 @@ func TestFinalizeLiveCallIsIdempotentAndBillsRealtimeUsage(t *testing.T) {
 	require.Equal(t, BillingTypeBalance, cmd.BillingType)
 	require.InDelta(t, log.ActualCost, cmd.BalanceCost, 0.000001)
 	require.Zero(t, cmd.SubscriptionCost)
+	require.InDelta(t, log.ActualCost, cmd.APIKeyQuotaCost, 0.000001)
+	require.InDelta(t, log.ActualCost, cmd.APIKeyRateLimitCost, 0.000001)
 }
 
 func TestGetLiveCallForIdentityRejectsMismatchedCaller(t *testing.T) {

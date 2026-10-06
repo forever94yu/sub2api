@@ -274,6 +274,12 @@ func (c *gatewayCache) SaveLiveCall(ctx context.Context, record *service.LiveCal
 	if record.AudioRealtimePricePerMin != nil {
 		values["audio_realtime_price_per_min"] = *record.AudioRealtimePricePerMin
 	}
+	if record.APIKeyBilling != nil {
+		values["api_key_quota"] = record.APIKeyBilling.Quota
+		values["api_key_rate_limit_5h"] = record.APIKeyBilling.RateLimit5h
+		values["api_key_rate_limit_1d"] = record.APIKeyBilling.RateLimit1d
+		values["api_key_rate_limit_7d"] = record.APIKeyBilling.RateLimit7d
+	}
 	key := liveCallKey(record.CallHash)
 	pipe := c.rdb.TxPipeline()
 	pipe.HSet(ctx, key, values)
@@ -307,6 +313,16 @@ func (c *gatewayCache) GetLiveCall(ctx context.Context, callHash string) (*servi
 	}
 	createdAt := time.UnixMilli(parseInt("created_at"))
 	expiresAt := time.UnixMilli(parseInt("expires_at"))
+	var apiKeyBilling *service.LiveAPIKeyBillingSnapshot
+	quota := parseFloatPtr("api_key_quota")
+	rate5h := parseFloatPtr("api_key_rate_limit_5h")
+	rate1d := parseFloatPtr("api_key_rate_limit_1d")
+	rate7d := parseFloatPtr("api_key_rate_limit_7d")
+	if quota != nil && rate5h != nil && rate1d != nil && rate7d != nil {
+		apiKeyBilling = &service.LiveAPIKeyBillingSnapshot{
+			Quota: *quota, RateLimit5h: *rate5h, RateLimit1d: *rate1d, RateLimit7d: *rate7d,
+		}
+	}
 	return &service.LiveCallRecord{
 		CallID:                   values["call_id"],
 		CallHash:                 callHash,
@@ -314,6 +330,7 @@ func (c *gatewayCache) GetLiveCall(ctx context.Context, callHash string) (*servi
 		AccountType:              values["account_type"],
 		AccountRateMultiplier:    parseFloatPtr("account_rate_multiplier"),
 		APIKeyID:                 parseInt("api_key_id"),
+		APIKeyBilling:            apiKeyBilling,
 		UserID:                   parseInt("user_id"),
 		GroupID:                  parseInt("group_id"),
 		SubscriptionID:           parseInt("subscription_id"),

@@ -1773,6 +1773,8 @@ type openAIResponsesWSUsageLogCase struct {
 	billingModelSource        string
 	accountModelMapping       map[string]any
 	afterFirstUpstreamRequest func(channelSvc *service.ChannelService) error
+	freshAPIKey               func(*service.APIKey)
+	rejectSecondTurn          bool
 }
 
 type openAIResponsesWSUsageLogResult struct {
@@ -2069,6 +2071,7 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 		nil,
 		nil,
 		nil,
+		nil, // apiKeyService
 	)
 	h := NewOpenAIGatewayHandler(
 		gatewaySvc,
@@ -2170,6 +2173,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 				nil,
 				nil,
 				nil,
+				nil, // apiKeyService
 			)
 			h := NewOpenAIGatewayHandler(
 				gatewaySvc,
@@ -2252,6 +2256,7 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 		nil,
 		nil,
 		nil,
+		nil, // apiKeyService
 	)
 	h := NewOpenAIGatewayHandler(
 		gatewaySvc,
@@ -2412,6 +2417,7 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 		nil,
 		nil,
 		nil,
+		nil, // apiKeyService
 	)
 
 	cache := &concurrencyCacheMock{
@@ -2601,6 +2607,7 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 		accountRepo, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
 		service.NewBillingService(cfg, nil), rateLimitSvc, billingCacheSvc,
 		nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
+		nil, // apiKeyService
 	)
 	cache := &concurrencyCacheMock{
 		acquireUserSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
@@ -2722,6 +2729,22 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 				upstreamErrCh <- errors.New("unexpected upstream websocket message type")
 				return
 			}
+			var request map[string]json.RawMessage
+			if err := json.Unmarshal(payload, &request); err != nil {
+				upstreamErrCh <- err
+				return
+			}
+			var eventType, model string
+			if err := json.Unmarshal(request["type"], &eventType); err != nil || eventType != "response.create" {
+				upstreamErrCh <- fmt.Errorf("expected response.create upstream, got type %q: %v", eventType, err)
+				return
+			}
+			if rawModel, ok := request["model"]; ok {
+				if err := json.Unmarshal(rawModel, &model); err != nil {
+					upstreamErrCh <- err
+					return
+				}
+			}
 			upstreamPayloadCh <- payload
 			if turn == 1 && tc.afterFirstUpstreamRequest != nil {
 				if callbackErr := tc.afterFirstUpstreamRequest(channelSvc); callbackErr != nil {
@@ -2733,7 +2756,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			response := fmt.Sprintf(
 				`{"type":"response.completed","response":{"id":"resp_usage_e2e_%d","model":%q,"usage":{"input_tokens":2,"output_tokens":1}}}`,
 				turn,
-				gjson.GetBytes(payload, "model").String(),
+				model,
 			)
 			writeCtx, cancelWrite := context.WithTimeout(r.Context(), 3*time.Second)
 			writeErr := conn.Write(writeCtx, coderws.MessageText, []byte(response))
@@ -2824,6 +2847,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		nil,
 		nil,
 		nil, // userPlatformQuotaRepo
+		nil, // apiKeyService
 	)
 
 	cache := &concurrencyCacheMock{
@@ -2834,17 +2858,18 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			return true, nil
 		},
 	}
+	apiKey := &service.APIKey{
+		ID: 1801, UserID: 1701, Key: "ws-usage-test-key", Status: service.StatusActive,
+		GroupID: &groupID,
+		User:    &service.User{ID: 1701, Status: service.StatusActive, Concurrency: 1},
+		Group:   &service.Group{ID: groupID, Status: service.StatusActive, Platform: service.PlatformOpenAI, RateMultiplier: 1},
+	}
 	h := &OpenAIGatewayHandler{
 		gatewayService:      gatewaySvc,
 		billingCacheService: billingCacheSvc,
-		apiKeyService:       &service.APIKeyService{},
+		apiKeyService:       service.NewAPIKeyService(&openAIWSBillingHandlerKeyRepo{key: apiKey, refresh: tc.freshAPIKey}, nil, nil, nil, nil, nil, cfg),
 		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
-	}
-
-	apiKey := &service.APIKey{
-		ID:      1801,
-		GroupID: &groupID,
-		User:    &service.User{ID: 1701, Status: service.StatusActive},
+		cfg:                 cfg,
 	}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -2852,7 +2877,11 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
 		c.Next()
 	})
-	router.GET("/openai/v1/responses", h.ResponsesWebSocket)
+	handlerDone := make(chan struct{})
+	router.GET("/openai/v1/responses", func(c *gin.Context) {
+		defer close(handlerDone)
+		h.ResponsesWebSocket(c)
+	})
 	handlerServer := httptest.NewServer(router)
 	defer handlerServer.Close()
 
@@ -2892,12 +2921,28 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		err = clientConn.Write(writeCtx, coderws.MessageText, []byte(tc.secondPayload))
 		cancelWrite()
 		require.NoError(t, err)
-		readCompleted()
+		if tc.rejectSecondTurn {
+			readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+			_, _, readErr := clientConn.Read(readCtx)
+			cancelRead()
+			require.Equal(t, coderws.StatusPolicyViolation, coderws.CloseStatus(readErr))
+		} else {
+			readCompleted()
+		}
 	}
 	_ = clientConn.Close(coderws.StatusNormalClosure, "done")
+	completedTurnCount := turnCount
+	if tc.rejectSecondTurn {
+		completedTurnCount--
+		select {
+		case <-handlerDone:
+		case <-time.After(3 * time.Second):
+			t.Fatal("websocket handler did not finish rejecting the second turn")
+		}
+	}
 
-	usageLogs := make([]*service.UsageLog, 0, turnCount)
-	for len(usageLogs) < turnCount {
+	usageLogs := make([]*service.UsageLog, 0, completedTurnCount)
+	for len(usageLogs) < completedTurnCount {
 		select {
 		case usageLog := <-usageRepo.created:
 			require.NotNil(t, usageLog)
@@ -2907,8 +2952,8 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		}
 	}
 
-	upstreamPayloads := make([][]byte, 0, turnCount)
-	for len(upstreamPayloads) < turnCount {
+	upstreamPayloads := make([][]byte, 0, completedTurnCount)
+	for len(upstreamPayloads) < completedTurnCount {
 		select {
 		case payload := <-upstreamPayloadCh:
 			upstreamPayloads = append(upstreamPayloads, payload)
@@ -2917,11 +2962,17 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		}
 	}
 
-	select {
-	case upstreamErr := <-upstreamErrCh:
-		require.NoError(t, upstreamErr)
-	case <-time.After(3 * time.Second):
-		t.Fatal("等待上游 WebSocket 结束超时")
+	if tc.rejectSecondTurn {
+		// A pooled upstream remains reusable after a client-side rejection.
+		// Handler completion is the barrier for observing all forwarded frames.
+		require.Empty(t, upstreamPayloadCh, "the rejected second request must never reach upstream")
+	} else {
+		select {
+		case upstreamErr := <-upstreamErrCh:
+			require.NoError(t, upstreamErr)
+		case <-time.After(3 * time.Second):
+			t.Fatal("等待上游 WebSocket 结束超时")
+		}
 	}
 
 	return openAIResponsesWSUsageLogResult{

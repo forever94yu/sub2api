@@ -77,6 +77,8 @@ func TestAliyunCaptchaVerifier_APIErrorNormalized(t *testing.T) {
 func TestAliyunCaptchaVerifier_TransportError(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	endpoint := strings.TrimPrefix(server.URL, "http://")
+	// The SDK matches NO_PROXY against the complete host:port.
+	t.Setenv("NO_PROXY", endpoint)
 	server.Close() // 立即关闭，制造连接失败
 
 	verifier := &aliyunCaptchaVerifier{protocol: "HTTP", timeoutMillis: 2_000}

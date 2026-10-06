@@ -27,6 +27,7 @@ const (
 	defaultLiveMaxSessionDuration = time.Hour
 	liveLeaseRefreshInterval      = 20 * time.Second
 	liveRedisOperationTimeout     = 3 * time.Second
+	liveAPIKeyLookupTimeout       = 3 * time.Second
 	liveClosedRecordTTL           = 24 * time.Hour
 	liveObserverPollInterval      = 250 * time.Millisecond
 	liveObserverStoreRetryLimit   = 5
@@ -82,6 +83,14 @@ func liveCloneFloat64(value *float64) *float64 {
 	return &copy
 }
 
+func cloneLiveAPIKeyBilling(snapshot *LiveAPIKeyBillingSnapshot) *LiveAPIKeyBillingSnapshot {
+	if snapshot == nil {
+		return nil
+	}
+	copy := *snapshot
+	return &copy
+}
+
 func liveMultiplierOrDefault(value *float64) float64 {
 	if value == nil {
 		return 1
@@ -117,16 +126,11 @@ func (s *OpenAIGatewayService) applyLiveUsageBilling(ctx context.Context, record
 		return errors.New("live billing dependencies unavailable")
 	}
 
-	groupID := liveOptionalID(record.GroupID)
 	user := &User{ID: record.UserID}
-	apiKey := &APIKey{
-		ID:      record.APIKeyID,
-		UserID:  record.UserID,
-		GroupID: groupID,
-		User:    user,
-	}
-	if record.Platform != "" || groupID != nil {
-		apiKey.Group = &Group{ID: record.GroupID, Platform: record.Platform}
+	apiKey, forceAPIKeyUsage := s.liveBillingAPIKey(ctx, record, user)
+	var apiKeyUpdater APIKeyQuotaUpdater
+	if s.apiKeyService != nil {
+		apiKeyUpdater = s.apiKeyService
 	}
 	account := &Account{
 		ID:             record.AccountID,
@@ -146,6 +150,8 @@ func (s *OpenAIGatewayService) applyLiveUsageBilling(ctx context.Context, record
 		Cost:                  cost,
 		User:                  user,
 		APIKey:                apiKey,
+		APIKeyService:         apiKeyUpdater,
+		ForceAPIKeyUsage:      forceAPIKeyUsage,
 		Account:               account,
 		Subscription:          subscription,
 		IsSubscriptionBill:    subscription != nil,
@@ -153,6 +159,50 @@ func (s *OpenAIGatewayService) applyLiveUsageBilling(ctx context.Context, record
 		Platform:              record.Platform,
 	}, s.liveBillingDeps(), s.usageBillingRepo)
 	return err
+}
+
+func (s *OpenAIGatewayService) liveBillingAPIKey(ctx context.Context, record *LiveCallRecord, user *User) (*APIKey, bool) {
+	apiKey := &APIKey{
+		ID:      record.APIKeyID,
+		UserID:  record.UserID,
+		GroupID: liveOptionalID(record.GroupID),
+		User:    user,
+	}
+	if record.Platform != "" || apiKey.GroupID != nil {
+		apiKey.Group = &Group{ID: record.GroupID, Platform: record.Platform}
+	}
+	snapshot := record.APIKeyBilling
+	if s.apiKeyService != nil && (snapshot == nil || snapshot.Quota > 0) {
+		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), liveAPIKeyLookupTimeout)
+		current, err := s.apiKeyService.GetByID(lookupCtx, record.APIKeyID)
+		cancel()
+		if err != nil {
+			if !errors.Is(err, ErrAPIKeyNotFound) {
+				logger.LegacyPrintf("service.openai_live", "live billing key lookup failed call_hash=%s api_key=%d: %v", record.CallHash, record.APIKeyID, err)
+			}
+		} else if current != nil {
+			// Current credentials only invalidate auth caches; billing ownership stays frozen.
+			apiKey.Key = current.Key
+			if snapshot == nil {
+				snapshot = &LiveAPIKeyBillingSnapshot{
+					Quota:       current.Quota,
+					RateLimit5h: current.RateLimit5h,
+					RateLimit1d: current.RateLimit1d,
+					RateLimit7d: current.RateLimit7d,
+				}
+			}
+		}
+	}
+	if snapshot == nil {
+		// Legacy lookup failures must not discard the original bill. Database quota
+		// rules still use the key's actual limits when these usage counters are written.
+		return apiKey, true
+	}
+	apiKey.Quota = snapshot.Quota
+	apiKey.RateLimit5h = snapshot.RateLimit5h
+	apiKey.RateLimit1d = snapshot.RateLimit1d
+	apiKey.RateLimit7d = snapshot.RateLimit7d
+	return apiKey, false
 }
 
 func (s *OpenAIGatewayService) hasLegacyLiveBillingDeps(record *LiveCallRecord) bool {
@@ -318,6 +368,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			AccountType:              account.Type,
 			AccountRateMultiplier:    liveCloneFloat64(&accountRateMultiplier),
 			APIKeyID:                 identity.APIKeyID,
+			APIKeyBilling:            cloneLiveAPIKeyBilling(identity.APIKeyBilling),
 			UserID:                   identity.UserID,
 			GroupID:                  liveGroupID(identity.GroupID),
 			SubscriptionID:           liveGroupID(identity.SubscriptionID),

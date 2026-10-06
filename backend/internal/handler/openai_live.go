@@ -181,7 +181,13 @@ func liveCallIdentity(
 		}
 	}
 	return service.LiveCallIdentity{
-		APIKeyID:                 apiKey.ID,
+		APIKeyID: apiKey.ID,
+		APIKeyBilling: &service.LiveAPIKeyBillingSnapshot{
+			Quota:       apiKey.Quota,
+			RateLimit5h: apiKey.RateLimit5h,
+			RateLimit1d: apiKey.RateLimit1d,
+			RateLimit7d: apiKey.RateLimit7d,
+		},
 		UserID:                   userID,
 		GroupID:                  apiKey.GroupID,
 		SubscriptionID:           subscriptionID,

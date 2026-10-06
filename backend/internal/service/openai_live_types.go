@@ -41,6 +41,7 @@ type LiveCallRequest struct {
 
 type LiveCallIdentity struct {
 	APIKeyID                 int64
+	APIKeyBilling            *LiveAPIKeyBillingSnapshot
 	UserID                   int64
 	GroupID                  *int64
 	SubscriptionID           *int64
@@ -52,6 +53,14 @@ type LiveCallIdentity struct {
 	InboundEndpoint          string
 }
 
+// A nil snapshot identifies a call created before API key metering was persisted.
+type LiveAPIKeyBillingSnapshot struct {
+	Quota       float64
+	RateLimit5h float64
+	RateLimit1d float64
+	RateLimit7d float64
+}
+
 type LiveCallRecord struct {
 	CallID                   string
 	CallHash                 string
@@ -59,6 +68,7 @@ type LiveCallRecord struct {
 	AccountType              string
 	AccountRateMultiplier    *float64
 	APIKeyID                 int64
+	APIKeyBilling            *LiveAPIKeyBillingSnapshot
 	UserID                   int64
 	GroupID                  int64
 	SubscriptionID           int64
