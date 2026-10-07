@@ -50,6 +50,12 @@ func NewS3ImageStorage(ctx context.Context, cfg *config.ImageStorageConfig) (*S3
 	}, nil
 }
 
+// TestConnection verifies the configured endpoint, credentials, and bucket.
+func (s *S3ImageStorage) TestConnection(ctx context.Context) error {
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &s.bucket})
+	return err
+}
+
 // Save 上传图片字节，返回可访问 URL：配了 public_base_url 则返回公开直链，否则返回 presigned 临时链接。
 func (s *S3ImageStorage) Save(ctx context.Context, key, contentType string, data []byte) (string, error) {
 	finish := servertiming.ObserveDependency(ctx, "s3")

@@ -274,6 +274,15 @@ func TestGwRefundRejectsAlipayMerchantIdentitySnapshotMismatch(t *testing.T) {
 		Reason:        "snapshot mismatch",
 	})
 	require.ErrorContains(t, err, "alipay app_id mismatch")
+
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).SetStatus(OrderStatusRefundPending).Save(ctx)
+	require.NoError(t, err)
+	result, err := svc.QueryAndFinalizeRefund(ctx, order.ID)
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "alipay app_id mismatch")
+	current, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusRefundPending, current.Status)
 }
 
 func TestCalculateGatewayRefundAmountUsesCurrencyPrecision(t *testing.T) {
@@ -299,7 +308,7 @@ func TestValidateRefundProviderResponseAcceptsPending(t *testing.T) {
 	require.Error(t, validateRefundProviderResponse(nil))
 }
 
-func TestFinishRefundPendingMarksOrderPendingAndRollsBackDeduction(t *testing.T) {
+func TestFinishRefundPendingMarksOrderPendingAndRetainsDeduction(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
 
@@ -357,8 +366,8 @@ func TestFinishRefundPendingMarksOrderPendingAndRollsBackDeduction(t *testing.T)
 	require.NotNil(t, result)
 	require.False(t, result.Success)
 	require.Contains(t, result.Warning, "pending confirmation")
-	require.Equal(t, 40.0, rolledBack)
-	require.Zero(t, plan.BalanceToDeduct)
+	require.Zero(t, rolledBack)
+	require.Equal(t, 40.0, plan.BalanceToDeduct)
 
 	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, err)
@@ -456,9 +465,10 @@ func TestQueryAndFinalizeRefundFinalizesProviderStatuses(t *testing.T) {
 		wantStatus string
 		wantDeduct float64
 		available  float64
+		force      bool
 	}{
 		{name: "success", status: payment.ProviderStatusSuccess, wantStatus: OrderStatusRefunded, wantDeduct: 100, available: 100},
-		{name: "success clamps current balance", status: payment.ProviderStatusSuccess, wantStatus: OrderStatusRefunded, wantDeduct: 35, available: 35},
+		{name: "forced success clamps current balance", status: payment.ProviderStatusSuccess, wantStatus: OrderStatusRefunded, wantDeduct: 35, available: 35, force: true},
 		{name: "failed", status: payment.ProviderStatusFailed, wantStatus: OrderStatusRefundFailed},
 		{name: "pending", status: payment.ProviderStatusPending, wantStatus: OrderStatusRefundPending},
 	} {
@@ -466,15 +476,23 @@ func TestQueryAndFinalizeRefundFinalizesProviderStatuses(t *testing.T) {
 			ctx := context.Background()
 			client := newPaymentConfigServiceTestClient(t)
 			order := createPendingRefundOrderForTest(t, ctx, client, "query-finalize-"+tc.name)
+			_, err := client.PaymentOrder.UpdateOneID(order.ID).SetForceRefund(tc.force).Save(ctx)
+			require.NoError(t, err)
 
 			var deducted float64
 			svc := &PaymentService{
 				entClient:    client,
 				loadBalancer: &captureLoadBalancer{},
-				userRepo: &mockUserRepo{deductAvailableBalanceFn: func(ctx context.Context, id int64, amount float64) (float64, error) {
-					deducted += tc.available
-					return tc.available, nil
-				}},
+				userRepo: &mockUserRepo{
+					deductAvailableBalanceFn: func(ctx context.Context, id int64, amount float64) (float64, error) {
+						deducted += tc.available
+						return tc.available, nil
+					},
+					deductBalanceFn: func(ctx context.Context, id int64, amount float64) error {
+						deducted += amount
+						return nil
+					},
+				},
 			}
 			restore := replacePaymentProviderFactoryForTest(t, &refundQueryProviderTestDouble{
 				refundResponse: &payment.RefundResponse{RefundID: "rf_test", Status: tc.status},
@@ -510,10 +528,10 @@ func TestFinalizePendingRefundSuccessRejectsStaleCallerBeforeSecondDeduction(t *
 	deductions := 0
 	svc := &PaymentService{
 		entClient: client,
-		userRepo: &mockUserRepo{deductAvailableBalanceFn: func(ctx context.Context, id int64, amount float64) (float64, error) {
+		userRepo: &mockUserRepo{deductBalanceFn: func(ctx context.Context, id int64, amount float64) error {
 			require.NotNil(t, dbent.TxFromContext(ctx))
 			deductions++
-			return amount, nil
+			return nil
 		}},
 	}
 
@@ -543,13 +561,13 @@ func TestFinalizePendingRefundSuccessRollsBackPostDeductionFailure(t *testing.T)
 
 	svc := &PaymentService{
 		entClient: client,
-		userRepo: &mockUserRepo{deductAvailableBalanceFn: func(ctx context.Context, id int64, amount float64) (float64, error) {
+		userRepo: &mockUserRepo{deductBalanceFn: func(ctx context.Context, id int64, amount float64) error {
 			tx := dbent.TxFromContext(ctx)
 			require.NotNil(t, tx)
 			if _, updateErr := tx.Client().User.UpdateOneID(id).AddBalance(-amount).Save(ctx); updateErr != nil {
-				return 0, updateErr
+				return updateErr
 			}
-			return 0, errors.New("injected failure after deduction")
+			return errors.New("injected failure after deduction")
 		}},
 	}
 

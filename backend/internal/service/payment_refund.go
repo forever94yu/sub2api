@@ -310,12 +310,22 @@ func (s *PaymentService) ExecuteRefund(ctx context.Context, p *RefundPlan) (*Ref
 		// Skip balance deduction on retry if previous attempt already deducted
 		// but failed to roll back (REFUND_ROLLBACK_FAILED in audit log).
 		if !s.hasAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED") {
-			deducted, err := s.deductAvailableBalance(ctx, p.Order.UserID, p.BalanceToDeduct)
+			deducted := p.BalanceToDeduct
+			var err error
+			if p.Force {
+				deducted, err = s.deductAvailableBalance(ctx, p.Order.UserID, p.BalanceToDeduct)
+			} else {
+				_, err = s.userRepo.AdjustBalance(ctx, p.Order.UserID, -p.BalanceToDeduct)
+			}
 			if err != nil {
 				s.restoreStatus(ctx, p)
+				if errors.Is(err, ErrBalanceNegative) {
+					return &RefundResult{Success: false, Warning: "user balance is insufficient for deduction, use force", RequireForce: true}, nil
+				}
 				return nil, fmt.Errorf("deduction: %w", err)
 			}
 			p.BalanceToDeduct = deducted
+			s.invalidateRefundBalanceAfterCommit(ctx, p.Order.UserID)
 		} else {
 			slog.Warn("skipping balance deduction on retry (previous rollback failed)", "orderID", p.OrderID)
 			p.BalanceToDeduct = 0
@@ -427,6 +437,9 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 	prov, err := s.getRefundProvider(ctx, o)
 	if err != nil {
 		return nil, fmt.Errorf("get refund provider: %w", err)
+	}
+	if err := validateProviderSnapshotMetadata(o, prov.ProviderKey(), providerMerchantIdentityMetadata(prov)); err != nil {
+		return nil, err
 	}
 	queryProvider, ok := prov.(payment.RefundQueryProvider)
 	if !ok {
@@ -567,11 +580,20 @@ func (s *PaymentService) applyRefundFinalDeduction(ctx context.Context, p *Refun
 		return nil
 	}
 	if p.DeductionType == payment.DeductionTypeBalance && p.BalanceToDeduct > 0 {
-		deducted, err := s.deductAvailableBalance(ctx, p.Order.UserID, p.BalanceToDeduct)
-		if err != nil {
-			return fmt.Errorf("deduction: %w", err)
+		if p.Force {
+			deducted, err := s.deductAvailableBalance(ctx, p.Order.UserID, p.BalanceToDeduct)
+			if err != nil {
+				return fmt.Errorf("deduction: %w", err)
+			}
+			p.BalanceToDeduct = deducted
+		} else {
+			// Legacy pending refunds returned the original debit. Once the provider
+			// confirms the cash refund, record the full debit even if it creates debt.
+			if err := s.userRepo.DeductBalance(ctx, p.Order.UserID, p.BalanceToDeduct); err != nil {
+				return fmt.Errorf("deduction: %w", err)
+			}
 		}
-		p.BalanceToDeduct = deducted
+		s.invalidateRefundBalanceAfterCommit(ctx, p.Order.UserID)
 	}
 	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
 		adjustment, err := s.subscriptionSvc.deductRefundSubscription(ctx, p.SubscriptionID, p.SubDaysToDeduct, p.subscriptionAdjustment)
@@ -730,30 +752,14 @@ func refundSuccessAuditDetail(p *RefundPlan) map[string]any {
 }
 
 func (s *PaymentService) markRefundPending(ctx context.Context, p *RefundPlan, resp *payment.RefundResponse) (*RefundResult, error) {
-	balanceDeducted := p.BalanceToDeduct
-	subDaysDeducted := p.SubDaysToDeduct
 	tx, err := s.entClient.Tx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin pending refund: %w", err)
 	}
-	defer func() {
-		if tx != nil {
-			_ = tx.Rollback()
-		}
-	}()
+	defer func() { _ = tx.Rollback() }()
 	txCtx := dbent.NewTxContext(ctx, tx)
-	rollbackErr := s.rollbackRefundDeduction(txCtx, p)
-	rollbackOK := rollbackErr == nil
-	if !rollbackOK {
-		// Failed compensation must leave the original deduction intact. Persist
-		// that outcome separately so settlement can avoid deducting it twice.
-		_ = tx.Rollback()
-		tx, err = s.entClient.Tx(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("begin pending refund after rollback failure: %w", err)
-		}
-		txCtx = dbent.NewTxContext(ctx, tx)
-	}
+	// Keep the original debit reserved until the provider reports success or
+	// failure. The existing audit fields also distinguish legacy compensated rows.
 
 	claimed, err := tx.PaymentOrder.Update().
 		Where(paymentorder.IDEQ(p.OrderID), paymentorder.StatusEQ(OrderStatusRefunding)).
@@ -781,19 +787,12 @@ func (s *PaymentService) markRefundPending(ctx context.Context, p *RefundPlan, r
 		"deductionType":          p.DeductionType,
 		"subscriptionID":         p.SubscriptionID,
 		"subscriptionAdjustment": p.subscriptionAdjustment,
-		"balanceDeducted":        balanceDeducted,
-		"subDaysDeducted":        subDaysDeducted,
+		"balanceDeducted":        p.BalanceToDeduct,
+		"subDaysDeducted":        p.SubDaysToDeduct,
 		"balanceRolledBack":      0,
 		"subDaysRolledBack":      0,
-		"deductionRollbackOK":    rollbackOK,
-	}
-	if rollbackOK {
-		detail["balanceDeducted"] = 0
-		detail["subDaysDeducted"] = 0
-		detail["balanceRolledBack"] = balanceDeducted
-		detail["subDaysRolledBack"] = subDaysDeducted
-	} else {
-		detail["rollbackError"] = psErrMsg(rollbackErr)
+		"deductionRollbackOK":    false,
+		"deductionRetained":      true,
 	}
 	encodedDetail, err := json.Marshal(detail)
 	if err != nil {
@@ -806,16 +805,7 @@ func (s *PaymentService) markRefundPending(ctx context.Context, p *RefundPlan, r
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit pending refund: %w", err)
 	}
-	if rollbackOK {
-		p.BalanceToDeduct = 0
-		p.SubDaysToDeduct = 0
-	}
-
-	warning := "gateway refund is pending confirmation"
-	if !rollbackOK {
-		warning += "; refund deduction rollback failed"
-	}
-	return &RefundResult{Success: false, Warning: warning}, nil
+	return &RefundResult{Success: false, Warning: "gateway refund is pending confirmation"}, nil
 }
 
 func refundResponseID(resp *payment.RefundResponse) string {
@@ -843,6 +833,7 @@ func (s *PaymentService) rollbackRefundDeduction(ctx context.Context, p *RefundP
 		if err := s.userRepo.UpdateBalance(ctx, p.Order.UserID, p.BalanceToDeduct); err != nil {
 			return err
 		}
+		s.invalidateRefundBalanceAfterCommit(ctx, p.Order.UserID)
 	}
 	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
 		if p.subscriptionAdjustment != nil {
@@ -853,6 +844,34 @@ func (s *PaymentService) rollbackRefundDeduction(ctx context.Context, p *RefundP
 		}
 	}
 	return nil
+}
+
+func (s *PaymentService) invalidateRefundBalanceAfterCommit(ctx context.Context, userID int64) {
+	invalidate := func() {
+		cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if s.authCacheInvalidator != nil {
+			s.authCacheInvalidator.InvalidateAuthCacheByUserID(cacheCtx, userID)
+		}
+		if s.billingCacheService != nil {
+			if err := s.billingCacheService.InvalidateUserBalance(cacheCtx, userID); err != nil {
+				slog.Error("invalidate refund balance cache", "userID", userID, "error", err)
+			}
+		}
+	}
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		tx.OnCommit(func(next dbent.Committer) dbent.Committer {
+			return dbent.CommitFunc(func(commitCtx context.Context, tx *dbent.Tx) error {
+				if err := next.Commit(commitCtx, tx); err != nil {
+					return err
+				}
+				invalidate()
+				return nil
+			})
+		})
+		return
+	}
+	invalidate()
 }
 
 func (s *PaymentService) restoreStatus(ctx context.Context, p *RefundPlan) {

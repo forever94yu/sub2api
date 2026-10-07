@@ -366,10 +366,35 @@ func TestBackupService_S3ConfigKeepExistingSecret(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	raw, err := repo.GetValue(context.Background(), settingKeyBackupS3Config)
+	require.NoError(t, err)
+	var stored BackupS3Config
+	require.NoError(t, json.Unmarshal([]byte(raw), &stored))
+	require.Equal(t, "ENC:original-secret", stored.SecretAccessKey, "retained credentials must stay encrypted at rest")
+
 	internal, err := svc.loadS3Config(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "original-secret", internal.SecretAccessKey)
 	require.Equal(t, "AKID-NEW", internal.AccessKeyID)
+}
+
+func TestBackupService_S3ConfigKeepsUndecryptableSecret(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	ctx := context.Background()
+	stored := BackupS3Config{Bucket: "bucket", AccessKeyID: "ak", SecretAccessKey: "ciphertext-from-another-key"}
+	raw, err := json.Marshal(stored)
+	require.NoError(t, err)
+	require.NoError(t, repo.Set(ctx, settingKeyBackupS3Config, string(raw)))
+
+	_, err = svc.UpdateS3Config(ctx, BackupS3Config{Bucket: "bucket", AccessKeyID: "ak", Prefix: "changed/"})
+	require.NoError(t, err)
+	saved, err := repo.GetValue(ctx, settingKeyBackupS3Config)
+	require.NoError(t, err)
+	var got BackupS3Config
+	require.NoError(t, json.Unmarshal([]byte(saved), &got))
+	require.Equal(t, stored.SecretAccessKey, got.SecretAccessKey, "a blank secret must not rewrite data encrypted under another key")
+	require.Equal(t, "changed/", got.Prefix)
 }
 
 func TestBackupService_UpdateS3Config_RejectsEphemeralKey(t *testing.T) {

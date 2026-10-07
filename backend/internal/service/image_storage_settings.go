@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -14,6 +15,8 @@ import (
 )
 
 const settingKeyImageStorageConfig = "image_storage_config"
+
+const imageStorageSettingsCacheTTL = time.Minute
 
 // ErrImageStorageIncomplete 表示开关已打开但凭证不全，无法启用异步生图。
 var ErrImageStorageIncomplete = errors.New("image storage is enabled but bucket/access_key_id/secret_access_key are incomplete")
@@ -58,10 +61,12 @@ type ImageStorageSettingService struct {
 	// 保证升级前已用配置文件开启该功能的部署不被打断。
 	fallback config.ImageStorageConfig
 
-	mu       sync.Mutex
-	resolved bool
-	uploader *ImageResultUploader
-	enabled  bool
+	mu                  sync.Mutex
+	resolved            bool
+	uploader            *ImageResultUploader
+	enabled             bool
+	backupConfigVersion uint64
+	cacheExpiresAt      time.Time
 }
 
 func NewImageStorageSettingService(
@@ -93,12 +98,19 @@ func (s *ImageStorageSettingService) resolve() (*ImageResultUploader, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.resolved {
+	var backupVersion uint64
+	if s.backup != nil {
+		backupVersion = s.backup.s3ConfigVersion.Load()
+	}
+	if s.resolved && s.backupConfigVersion == backupVersion && time.Now().Before(s.cacheExpiresAt) {
 		return s.uploader, s.enabled
 	}
 
 	ctx := context.Background()
 	s.resolved = true
+	s.backupConfigVersion = backupVersion
+	// Other processes share settings but not the local invalidation/version state.
+	s.cacheExpiresAt = time.Now().Add(imageStorageSettingsCacheTTL)
 	s.uploader, s.enabled = nil, false
 
 	cfg, err := s.effectiveConfig(ctx)
@@ -171,21 +183,31 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 		// 复用备份凭证时不落自己的密钥，避免同一份密钥在库里存两份。
 		in.Endpoint, in.Region, in.AccessKeyID, in.SecretAccessKey = "", "", "", ""
 		in.ForcePathStyle = false
-	} else if in.SecretAccessKey == "" {
-		if old, err := s.load(ctx); err == nil && old != nil {
-			in.SecretAccessKey = old.SecretAccessKey
-		}
 	} else {
-		// 拒绝用自动生成的临时密钥加密：重启后密文无法解密（#4524）。
-		// 与备份 S3 配置共用同一把密钥，故复用其配置状态判断。
-		if s.backup == nil || !s.backup.EncryptionKeyConfigured() {
-			return nil, ErrSecretEncryptionKeyNotConfigured
+		encryptSecret := in.SecretAccessKey != ""
+		if !encryptSecret {
+			old, err := s.load(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if old != nil {
+				in.SecretAccessKey = old.SecretAccessKey
+			} else {
+				in.SecretAccessKey = s.fallback.SecretAccessKey
+				encryptSecret = in.SecretAccessKey != ""
+			}
 		}
-		encrypted, err := s.encryptor.Encrypt(in.SecretAccessKey)
-		if err != nil {
-			return nil, fmt.Errorf("encrypt secret: %w", err)
+		if encryptSecret {
+			// Config-file secrets need the same durable encryption as newly entered secrets.
+			if s.backup == nil || !s.backup.EncryptionKeyConfigured() {
+				return nil, ErrSecretEncryptionKeyNotConfigured
+			}
+			encrypted, err := s.encryptor.Encrypt(in.SecretAccessKey)
+			if err != nil {
+				return nil, fmt.Errorf("encrypt secret: %w", err)
+			}
+			in.SecretAccessKey = encrypted
 		}
-		in.SecretAccessKey = encrypted
 	}
 
 	data, err := json.Marshal(in)
@@ -201,14 +223,19 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 	return &in, nil
 }
 
-// TestConnection 用给定设置试建一次客户端，用于后台的"测试连接"按钮。
+// TestConnection 检查对象存储连通性，用于后台的"测试连接"按钮。
 // 与 Update 一样支持留空 SecretAccessKey 表示沿用已保存的值。
 func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in ImageStorageSettings) error {
 	normalizeImageStorageSettings(&in)
 	if !in.ReuseBackupS3 && in.SecretAccessKey == "" {
 		old, err := s.load(ctx)
-		if err == nil && old != nil {
+		if err != nil {
+			return err
+		}
+		if old != nil {
 			in.SecretAccessKey = old.SecretAccessKey
+		} else {
+			in.SecretAccessKey = s.fallback.SecretAccessKey
 		}
 	}
 	cfg, err := s.toImageStorageConfig(ctx, &in)
@@ -218,10 +245,15 @@ func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in Imag
 	if !cfg.IsConfigured() {
 		return ErrImageStorageIncomplete
 	}
-	if _, err := s.factory(ctx, cfg); err != nil {
+	storage, err := s.factory(ctx, cfg)
+	if err != nil {
 		return err
 	}
-	return nil
+	tester, ok := storage.(interface{ TestConnection(context.Context) error })
+	if !ok {
+		return errors.New("image storage does not support connection testing")
+	}
+	return tester.TestConnection(ctx)
 }
 
 // effectiveConfig 把后台设置（或 config.yaml 回落）解析成运行时配置。
@@ -294,7 +326,13 @@ func (s *ImageStorageSettingService) load(ctx context.Context) (*ImageStorageSet
 		return nil, nil //nolint:nilnil // no repository means no stored settings
 	}
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyImageStorageConfig)
-	if err != nil || strings.TrimSpace(raw) == "" {
+	if errors.Is(err, ErrSettingNotFound) {
+		return nil, nil //nolint:nilnil // never configured is a valid state
+	}
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(raw) == "" {
 		return nil, nil //nolint:nilnil // never configured is a valid state
 	}
 	var settings ImageStorageSettings

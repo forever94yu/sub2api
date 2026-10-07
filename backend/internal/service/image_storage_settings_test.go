@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -251,4 +253,189 @@ func TestImageStorageSettingsFallBackToConfigFile(t *testing.T) {
 	require.True(t, fetched.Enabled)
 	require.Equal(t, "yaml-bucket", fetched.Bucket)
 	require.Empty(t, fetched.SecretAccessKey)
+}
+
+func TestImageStorageSettingsPreserveConfigFileSecretOnFirstSave(t *testing.T) {
+	svc, repo, built := newImageStorageFixture(t, config.ImageStorageConfig{
+		Enabled: true, Bucket: "yaml-bucket", AccessKeyID: "yaml-ak", SecretAccessKey: "yaml-sk",
+	})
+	ctx := context.Background()
+	fetched, err := svc.Get(ctx)
+	require.NoError(t, err)
+	require.True(t, svc.SecretConfigured(ctx))
+	fetched.Prefix = "changed/"
+	_, err = svc.Update(ctx, *fetched)
+	require.NoError(t, err)
+
+	_, enabled := svc.resolve()
+	require.True(t, enabled, "saving the masked config must not disable image tasks")
+	require.Len(t, *built, 1)
+	require.Equal(t, "yaml-sk", (*built)[0].SecretAccessKey)
+	require.Equal(t, "changed/", (*built)[0].Prefix)
+	raw, err := repo.GetValue(ctx, settingKeyImageStorageConfig)
+	require.NoError(t, err)
+	var stored ImageStorageSettings
+	require.NoError(t, json.Unmarshal([]byte(raw), &stored))
+	require.Equal(t, "enc:yaml-sk", stored.SecretAccessKey)
+}
+
+func TestImageStorageSettingsConfigFileSecretRequiresDurableKey(t *testing.T) {
+	svc, repo, _ := newImageStorageFixtureWithKey(t, config.ImageStorageConfig{
+		Enabled: true, Bucket: "yaml-bucket", AccessKeyID: "yaml-ak", SecretAccessKey: "yaml-sk",
+	}, false)
+	ctx := context.Background()
+	fetched, err := svc.Get(ctx)
+	require.NoError(t, err)
+	_, err = svc.Update(ctx, *fetched)
+	require.ErrorIs(t, err, ErrSecretEncryptionKeyNotConfigured)
+	raw, err := repo.GetValue(ctx, settingKeyImageStorageConfig)
+	require.NoError(t, err)
+	require.Empty(t, raw)
+}
+
+func TestImageStorageSettingsRefreshAfterBackupCredentialsChange(t *testing.T) {
+	svc, repo, built := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+	seedBackupS3(t, repo, BackupS3Config{
+		Bucket: "old-bucket", AccessKeyID: "old-ak", SecretAccessKey: "old-sk",
+	})
+	_, err := svc.Update(ctx, ImageStorageSettings{Enabled: true, ReuseBackupS3: true})
+	require.NoError(t, err)
+	first, enabled := svc.resolve()
+	require.True(t, enabled)
+	require.Len(t, *built, 1)
+
+	_, err = svc.backup.UpdateS3Config(ctx, BackupS3Config{
+		Endpoint: "https://new.example.com", Bucket: "new-bucket", AccessKeyID: "new-ak", SecretAccessKey: "new-sk",
+	})
+	require.NoError(t, err)
+	next, enabled := svc.resolve()
+	require.True(t, enabled)
+	require.NotSame(t, first, next, "credential changes must rebuild the cached uploader")
+	require.Len(t, *built, 2)
+	require.Equal(t, "new-bucket", (*built)[1].Bucket)
+	require.Equal(t, "new-ak", (*built)[1].AccessKeyID)
+	require.Equal(t, "new-sk", (*built)[1].SecretAccessKey)
+	require.Equal(t, "https://new.example.com", (*built)[1].Endpoint)
+	unchanged, _ := svc.resolve()
+	require.Same(t, next, unchanged, "unchanged settings should keep the cached client")
+}
+
+func TestImageStorageSettingsRefreshChangesFromAnotherInstance(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		svc, repo, built := newImageStorageFixture(t, config.ImageStorageConfig{})
+		ctx := context.Background()
+		seedBackupS3(t, repo, BackupS3Config{
+			Bucket: "old-bucket", AccessKeyID: "old-ak", SecretAccessKey: "old-sk",
+		})
+		_, err := svc.Update(ctx, ImageStorageSettings{Enabled: true, ReuseBackupS3: true})
+		require.NoError(t, err)
+		_, enabled := svc.resolve()
+		require.True(t, enabled)
+
+		// A second process shares the database but not the in-memory config version.
+		otherBackup := NewBackupService(repo, &config.Config{
+			Totp: config.TotpConfig{EncryptionKeyConfigured: true},
+		}, reversibleEncryptor{}, nil, nil)
+		_, err = otherBackup.UpdateS3Config(ctx, BackupS3Config{
+			Bucket: "new-bucket", AccessKeyID: "new-ak", SecretAccessKey: "new-sk",
+		})
+		require.NoError(t, err)
+		time.Sleep(time.Minute + time.Second)
+		_, enabled = svc.resolve()
+		require.True(t, enabled)
+		require.Len(t, *built, 2)
+		require.Equal(t, "new-sk", (*built)[1].SecretAccessKey)
+
+		other := NewImageStorageSettingService(repo, reversibleEncryptor{}, otherBackup, svc.factory, config.ImageStorageConfig{})
+		_, err = other.Update(ctx, ImageStorageSettings{Enabled: false, ReuseBackupS3: true})
+		require.NoError(t, err)
+		time.Sleep(time.Minute + time.Second)
+		_, enabled = svc.resolve()
+		require.False(t, enabled, "a remote settings change must not leave the feature enabled indefinitely")
+	})
+}
+
+type connectionCheckingStorage struct {
+	recordingStorage
+	err     error
+	checked bool
+}
+
+type imageStorageReadErrorRepo struct {
+	SettingRepository
+	err error
+}
+
+func (r imageStorageReadErrorRepo) GetValue(context.Context, string) (string, error) {
+	return "", r.err
+}
+
+func TestS3SettingsUpdatesPreserveCredentialsOnReadFailure(t *testing.T) {
+	for _, kind := range []string{"backup", "images"} {
+		t.Run(kind, func(t *testing.T) {
+			svc, repo, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+			ctx := context.Background()
+			seedBackupS3(t, repo, BackupS3Config{Bucket: "backup", AccessKeyID: "ak", SecretAccessKey: "sk"})
+			_, err := svc.Update(ctx, ImageStorageSettings{Bucket: "images", AccessKeyID: "ak", SecretAccessKey: "sk"})
+			require.NoError(t, err)
+			readErr := errors.New("database unavailable")
+			failingRepo := imageStorageReadErrorRepo{SettingRepository: repo, err: readErr}
+			if kind == "backup" {
+				svc.backup.settingRepo = failingRepo
+				_, err = svc.backup.UpdateS3Config(ctx, BackupS3Config{Bucket: "changed", AccessKeyID: "ak"})
+			} else {
+				svc.settingRepo = failingRepo
+				_, err = svc.Update(ctx, ImageStorageSettings{Bucket: "changed", AccessKeyID: "ak"})
+			}
+			require.ErrorIs(t, err, readErr)
+			for _, key := range []string{settingKeyBackupS3Config, settingKeyImageStorageConfig} {
+				raw, err := repo.GetValue(ctx, key)
+				require.NoError(t, err)
+				require.Contains(t, raw, "enc:sk")
+				require.NotContains(t, raw, "changed")
+			}
+		})
+	}
+}
+
+func (s *connectionCheckingStorage) TestConnection(context.Context) error {
+	s.checked = true
+	return s.err
+}
+
+func TestImageStorageSettingsTestConnectionChecksStorage(t *testing.T) {
+	for _, checkErr := range []error{nil, errors.New("access denied")} {
+		name := "success"
+		if checkErr != nil {
+			name = "rejected credentials"
+		}
+		t.Run(name, func(t *testing.T) {
+			svc, _, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+			storage := &connectionCheckingStorage{err: checkErr}
+			svc.factory = func(context.Context, *config.ImageStorageConfig) (ImageStorage, error) {
+				return storage, nil
+			}
+			err := svc.TestConnection(context.Background(), ImageStorageSettings{
+				Bucket: "bucket", AccessKeyID: "ak", SecretAccessKey: "sk",
+			})
+			require.ErrorIs(t, err, checkErr)
+			require.True(t, storage.checked, "client construction alone cannot verify connectivity")
+		})
+	}
+}
+
+func TestImageStorageSettingsTestConnectionUsesConfigFileSecret(t *testing.T) {
+	svc, _, _ := newImageStorageFixture(t, config.ImageStorageConfig{
+		Enabled: true, Bucket: "yaml-bucket", AccessKeyID: "yaml-ak", SecretAccessKey: "yaml-sk",
+	})
+	storage := &connectionCheckingStorage{}
+	svc.factory = func(_ context.Context, cfg *config.ImageStorageConfig) (ImageStorage, error) {
+		require.Equal(t, "yaml-sk", cfg.SecretAccessKey)
+		return storage, nil
+	}
+	fetched, err := svc.Get(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, svc.TestConnection(context.Background(), *fetched))
+	require.True(t, storage.checked)
 }

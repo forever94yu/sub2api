@@ -4,6 +4,8 @@ import PaymentView from '../PaymentView.vue'
 import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
+import AmountInput from '@/components/payment/AmountInput.vue'
+import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
 import type { CheckoutInfoResponse, MethodLimit, SubscriptionPlan } from '@/types/payment'
 
 const routeState = vi.hoisted(() => ({
@@ -379,6 +381,137 @@ describe('PaymentView subscription confirmation amounts', () => {
     expect(text).toContain(fee)
     expect(text).toContain(total)
     expect(wrapper.findAll('button').some(button => button.text().includes(total))).toBe(true)
+  })
+})
+
+describe('PaymentView recharge gateway limits', () => {
+  it.each([
+    { currency: 'AFN', gatewayAmount: 10.61 },
+    { currency: 'ALL', gatewayAmount: 10.61 },
+    { currency: 'IQD', gatewayAmount: 10.605 },
+  ])('uses payment precision for $currency principal and fee limits', async ({ currency, gatewayAmount }) => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    const method = {
+      ...checkoutInfoFixture().data.methods.wxpay,
+      single_min: gatewayAmount,
+      single_max: gatewayAmount,
+      currency,
+    }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods: { wxpay: method }, recharge_fee_rate: 1 }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true } },
+    })
+    await flushPromises()
+    const input = wrapper.findComponent(AmountInput)
+    expect(input.props('min')).toBe(10.50)
+    expect(input.props('max')).toBe(10.50)
+    input.vm.$emit('update:modelValue', 10.50)
+    await flushPromises()
+
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))!
+    expect(submit.element.disabled).toBe(false)
+    expect(wrapper.findComponent(PaymentMethodSelector).props('methods')[0].available).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('preserves decimal principal limits when no fee is configured', async () => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    const method = { ...checkoutInfoFixture().data.methods.wxpay, single_min: 1.10, single_max: 4.10, currency: 'CNY' }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods: { wxpay: method } }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true } },
+    })
+    await flushPromises()
+    expect(wrapper.findComponent(AmountInput).props('min')).toBe(1.10)
+    expect(wrapper.findComponent(AmountInput).props('max')).toBe(4.10)
+    wrapper.unmount()
+  })
+
+  it.each([
+    { amount: 90.90, allowed: false },
+    { amount: 90.91, allowed: true },
+    { amount: 95, allowed: true },
+    { amount: 136.36, allowed: true },
+    { amount: 136.37, allowed: false },
+    { amount: 150, allowed: false },
+  ])('checks the fee-inclusive payment for a $amount recharge', async ({ amount, allowed }) => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    const method = { ...checkoutInfoFixture().data.methods.wxpay, single_min: 100, single_max: 150, currency: 'CNY' }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods: { wxpay: method }, recharge_fee_rate: 10 }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true } },
+    })
+    await flushPromises()
+    const input = wrapper.findComponent(AmountInput)
+    expect(input.props('min')).toBe(90.91)
+    expect(input.props('max')).toBe(136.36)
+    input.vm.$emit('update:modelValue', amount)
+    await flushPromises()
+
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))!
+    expect(submit.element.disabled).toBe(!allowed)
+    expect(wrapper.findComponent(PaymentMethodSelector).props('methods')[0].available).toBe(allowed)
+    wrapper.unmount()
+  })
+
+  it('accepts an exact fee-inclusive maximum without adding a floating-point cent', async () => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    const method = { ...checkoutInfoFixture().data.methods.wxpay, single_max: 21.10, currency: 'CNY' }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods: { wxpay: method }, recharge_fee_rate: 5.5 }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true } },
+    })
+    await flushPromises()
+    wrapper.findComponent(AmountInput).vm.$emit('update:modelValue', 20)
+    await flushPromises()
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))!
+    expect(submit.element.disabled).toBe(false)
+    expect(submit.text()).toContain(formatPaymentAmount(21.10, 'CNY'))
+    wrapper.unmount()
+  })
+
+  it('switches to a channel that can accept the payment including its fee', async () => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    const method = checkoutInfoFixture().data.methods.wxpay
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({
+      methods: { wxpay: { ...method, single_max: 100 }, stripe: { ...method, single_max: 150 } },
+      recharge_fee_rate: 10,
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true } },
+    })
+    await flushPromises()
+    wrapper.findComponent(AmountInput).vm.$emit('update:modelValue', 95)
+    await flushPromises()
+    expect(wrapper.findComponent(PaymentMethodSelector).props('selected')).toBe('stripe')
+    wrapper.unmount()
+  })
+
+  it('does not round unsupported principal fractions into a valid gateway amount', async () => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    const method = { ...checkoutInfoFixture().data.methods.wxpay, single_max: 1, currency: 'JPY' }
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods: { wxpay: method } }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true } },
+    })
+    await flushPromises()
+    wrapper.findComponent(AmountInput).vm.$emit('update:modelValue', 1.49)
+    await flushPromises()
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))!
+    expect(submit.element.disabled).toBe(true)
+    wrapper.unmount()
   })
 })
 

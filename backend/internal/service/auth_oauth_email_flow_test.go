@@ -340,6 +340,47 @@ func TestRegisterOAuthEmailAccountSetsNormalizedSignupSourceOnCreatedUser(t *tes
 	require.Equal(t, "oidc", userRepo.created[0].SignupSource)
 }
 
+func TestRegisterOAuthEmailAccountInheritsDefaultRPMLimit(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		setting string
+		want    int
+	}{
+		{name: "limited", setting: "60", want: 60},
+		{name: "unlimited", setting: "0", want: 0},
+		{name: "not configured", want: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			userRepo := &userRepoStub{nextID: 42}
+			authService := newOAuthEmailFlowAuthService(
+				userRepo,
+				&redeemCodeRepoStub{},
+				&refreshTokenCacheStub{},
+				map[string]string{
+					SettingKeyRegistrationEnabled: "true",
+					SettingKeyDefaultUserRPMLimit: tt.setting,
+				},
+				&emailCacheStub{data: &VerificationCodeData{
+					Code:      "246810",
+					CreatedAt: time.Now().UTC(),
+					ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
+				}},
+				nil,
+			)
+
+			pair, user, err := authService.RegisterOAuthEmailAccount(
+				context.Background(), "fresh@example.com", "secret-123", "246810", "", "oidc",
+			)
+
+			require.NoError(t, err)
+			require.NotEmpty(t, pair.AccessToken)
+			require.Equal(t, tt.want, user.RPMLimit)
+			require.Len(t, userRepo.created, 1)
+			require.Equal(t, tt.want, userRepo.created[0].RPMLimit)
+		})
+	}
+}
+
 func TestRegisterOAuthEmailAccountKeepsGitHubAndGoogleSignupSource(t *testing.T) {
 	tests := []struct {
 		name         string

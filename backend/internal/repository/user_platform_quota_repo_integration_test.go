@@ -5,12 +5,12 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +18,7 @@ import (
 func mustCreateUserForQuota(t *testing.T, client *dbent.Client) int64 {
 	t.Helper()
 	u := mustCreateUser(t, client, &service.User{
-		Email: fmt.Sprintf("quota-test-%d@example.com", time.Now().UnixNano()),
+		Email: "quota-test-" + uuid.NewString() + "@example.com",
 	})
 	return u.ID
 }

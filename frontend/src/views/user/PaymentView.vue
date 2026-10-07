@@ -288,7 +288,7 @@ import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, pl
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
+import { DEFAULT_PAYMENT_CURRENCY, formatPaymentAmount, normalizePaymentCurrency, paymentAmountFractionDigits } from '@/components/payment/currency'
 import { planValiditySuffix as validitySuffixOf } from '@/components/payment/validity'
 import type { PaymentMethodOption } from '@/components/payment/PaymentMethodSelector.vue'
 import { buildPaymentErrorToastMessage, describePaymentScenarioError } from './paymentUx'
@@ -562,15 +562,37 @@ function amountFitsMethod(amt: number, methodType: string): boolean {
   return true
 }
 
-// Visible methods decide the amount range shown to users.
+function rechargePrincipalLimit(limit: number, currency: string, minimum: boolean): number {
+  if (limit <= 0) return 0
+  const factor = 10 ** paymentAmountFractionDigits(currency)
+  const multiplier = 1 + Math.max(0, feeRate.value) / 100
+  const scaledLimit = Number((limit * factor).toPrecision(15))
+  const minorLimit = minimum ? Math.ceil(scaledLimit) : Math.floor(scaledLimit)
+  // For principal n and rounded-up fee, n + ceil(n * rate) must fit the gateway limit.
+  const quotient = (minorLimit - (minimum ? 1 : 0)) / multiplier
+  const principal = Math.floor(Number(quotient.toPrecision(15))) + (minimum ? 1 : 0)
+  return principal / factor
+}
+
+const rechargeMethodLimits = computed(() => Object.fromEntries(
+  Object.entries(visibleMethods.value).map(([type, method]) => {
+    const currency = normalizePaymentCurrency(method.currency)
+    return [type, {
+      single_min: rechargePrincipalLimit(method.single_min, currency, true),
+      single_max: rechargePrincipalLimit(method.single_max, currency, false),
+    }]
+  })
+))
+
+// Display principal amounts; gateway limits apply after adding the fee.
 const globalMinAmount = computed(() => {
-  const limits = Object.values(visibleMethods.value)
+  const limits = Object.values(rechargeMethodLimits.value)
   if (limits.length === 0) return 0
   if (limits.some(limit => limit.single_min <= 0)) return 0
   return Math.min(...limits.map(limit => limit.single_min))
 })
 const globalMaxAmount = computed(() => {
-  const limits = Object.values(visibleMethods.value)
+  const limits = Object.values(rechargeMethodLimits.value)
   if (limits.length === 0) return 0
   if (limits.some(limit => limit.single_max <= 0)) return 0
   return Math.max(...limits.map(limit => limit.single_max))
@@ -588,27 +610,23 @@ const localeCode = computed(() => {
   return undefined
 })
 
-function currencyFractionDigits(currency: string): number {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-    }).resolvedOptions().maximumFractionDigits ?? 2
-  } catch {
-    return 2
-  }
-}
-
 function roundPaymentAmount(value: number, currency: string): number {
   if (!Number.isFinite(value)) return 0
-  const factor = 10 ** currencyFractionDigits(currency)
+  const factor = 10 ** paymentAmountFractionDigits(currency)
   return Math.round(value * factor) / factor
 }
 
 function ceilPaymentAmount(value: number, currency: string): number {
   if (!Number.isFinite(value)) return 0
-  const factor = 10 ** currencyFractionDigits(currency)
-  return Math.ceil(value * factor) / factor
+  const factor = 10 ** paymentAmountFractionDigits(currency)
+  return Math.ceil(Number((value * factor).toPrecision(15))) / factor
+}
+
+function rechargeAmountFitsMethod(value: number, methodType: string): boolean {
+  const currency = normalizePaymentCurrency(visibleMethods.value[methodType]?.currency)
+  if (roundPaymentAmount(value, currency) !== value) return false
+  const fee = feeRate.value > 0 ? ceilPaymentAmount((value * feeRate.value) / 100, currency) : 0
+  return amountFitsMethod(roundPaymentAmount(value + fee, currency), methodType)
 }
 
 function subscriptionPaymentAmountForCurrency(value: number, currency: string): number {
@@ -632,7 +650,7 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
       type,
       display_name: ml?.display_name,
       fee_rate: ml?.fee_rate ?? 0,
-      available: ml?.available !== false && amountFitsMethod(validAmount.value, type),
+      available: ml?.available !== false && rechargeAmountFitsMethod(validAmount.value, type),
     }
   })
 )
@@ -640,23 +658,23 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
 const feeRate = computed(() => checkout.value?.recharge_fee_rate ?? 0)
 const feeAmount = computed(() =>
   feeRate.value > 0 && validAmount.value > 0
-    ? Math.ceil(((validAmount.value * feeRate.value) / 100) * 100) / 100
+    ? ceilPaymentAmount((validAmount.value * feeRate.value) / 100, selectedCurrency.value)
     : 0
 )
 const totalAmount = computed(() =>
   feeRate.value > 0 && validAmount.value > 0
-    ? Math.round((validAmount.value + feeAmount.value) * 100) / 100
+    ? roundPaymentAmount(validAmount.value + feeAmount.value, selectedCurrency.value)
     : validAmount.value
 )
 
 const amountError = computed(() => {
   if (validAmount.value <= 0) return ''
   // No method can handle this amount
-  if (!enabledMethods.value.some((m) => amountFitsMethod(validAmount.value, m))) {
+  if (!enabledMethods.value.some((m) => rechargeAmountFitsMethod(validAmount.value, m))) {
     return t('payment.amountNoMethod')
   }
   // Selected method can't handle this amount (but others can)
-  const ml = selectedLimit.value
+  const ml = rechargeMethodLimits.value[selectedMethod.value]
   if (ml) {
     if (ml.single_min > 0 && validAmount.value < ml.single_min) return t('payment.amountTooLow', { min: formatSelectedPaymentAmount(ml.single_min) })
     if (ml.single_max > 0 && validAmount.value > ml.single_max) return t('payment.amountTooHigh', { max: formatSelectedPaymentAmount(ml.single_max) })
@@ -666,7 +684,7 @@ const amountError = computed(() => {
 
 const canSubmit = computed(() =>
   validAmount.value > 0
-    && amountFitsMethod(validAmount.value, selectedMethod.value)
+    && rechargeAmountFitsMethod(validAmount.value, selectedMethod.value)
     && selectedLimit.value?.available !== false
 )
 
@@ -715,8 +733,8 @@ const canSubmitSubscription = computed(() =>
 
 // Auto-switch to first available method when current selection can't handle the amount
 watch(() => [validAmount.value, selectedMethod.value] as const, ([amt, method]) => {
-  if (amt <= 0 || amountFitsMethod(amt, method)) return
-  const available = enabledMethods.value.find((m) => amountFitsMethod(amt, m))
+  if (amt <= 0 || rechargeAmountFitsMethod(amt, method)) return
+  const available = enabledMethods.value.find((m) => visibleMethods.value[m]?.available !== false && rechargeAmountFitsMethod(amt, m))
   if (available) selectedMethod.value = available
 })
 

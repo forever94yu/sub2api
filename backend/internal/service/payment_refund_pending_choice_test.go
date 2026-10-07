@@ -24,6 +24,7 @@ func TestPendingRefundSettlementUsesRecordedActualDeduction(t *testing.T) {
 		wantReported  float64
 	}{
 		{"actual deduction", `{"deductBalance":true,"deductionType":"balance","balanceRolledBack":25,"deductionRollbackOK":true}`, 25, 25},
+		{"retained deduction", `{"deductBalance":true,"deductionType":"balance","balanceDeducted":25,"deductionRollbackOK":false,"deductionRetained":true}`, 0, 25},
 		{"failed rollback", `{"deductBalance":true,"deductionType":"balance","balanceDeducted":25,"deductionRollbackOK":false}`, 0, 25},
 		{"legacy pending", `{"deductionRollbackOK":true}`, 100, 100},
 		{"legacy zero actual", `{"balanceRolledBack":0,"deductionRollbackOK":true}`, 0, 0},
@@ -38,9 +39,9 @@ func TestPendingRefundSettlementUsesRecordedActualDeduction(t *testing.T) {
 			require.NoError(t, err)
 			var deducted float64
 			svc := &PaymentService{entClient: client, loadBalancer: &captureLoadBalancer{}, userRepo: &mockUserRepo{
-				deductAvailableBalanceFn: func(ctx context.Context, id int64, amount float64) (float64, error) {
+				deductBalanceFn: func(ctx context.Context, id int64, amount float64) error {
 					deducted += amount
-					return amount, nil
+					return nil
 				},
 			}}
 			restore := replacePaymentProviderFactoryForTest(t, &refundQueryProviderTestDouble{refundResponse: &payment.RefundResponse{Status: payment.ProviderStatusSuccess}})
@@ -54,7 +55,7 @@ func TestPendingRefundSettlementUsesRecordedActualDeduction(t *testing.T) {
 	}
 }
 
-func TestMarkRefundPendingRollsBackCompensationWhenAuditFails(t *testing.T) {
+func TestMarkRefundPendingPreservesDeductionWhenAuditFails(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
 	order := createPendingRefundOrderForTest(t, ctx, client, "pending-audit-failure")

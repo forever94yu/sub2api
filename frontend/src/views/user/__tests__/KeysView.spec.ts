@@ -7,6 +7,8 @@ import KeysView from '../KeysView.vue'
 
 const {
   listKeys,
+  createKey,
+  updateKey,
   getPublicSettings,
   getDashboardApiKeysUsage,
   getAvailableGroups,
@@ -18,6 +20,8 @@ const {
   nextStep,
 } = vi.hoisted(() => ({
   listKeys: vi.fn(),
+  createKey: vi.fn(),
+  updateKey: vi.fn(),
   getPublicSettings: vi.fn(),
   getDashboardApiKeysUsage: vi.fn(),
   getAvailableGroups: vi.fn(),
@@ -58,8 +62,8 @@ const messages: Record<string, string> = {
 vi.mock('@/api', () => ({
   keysAPI: {
     list: listKeys,
-    create: vi.fn(),
-    update: vi.fn(),
+    create: createKey,
+    update: updateKey,
     delete: vi.fn(),
     toggleStatus: vi.fn(),
   },
@@ -170,6 +174,7 @@ const DataTableStub = {
           <slot name="cell-id" :value="row.id" :row="row" />
         </div>
         <slot name="cell-name" :value="row.name" :row="row" />
+        <slot name="cell-actions" :row="row" />
         <div data-test="current-concurrency">
           <slot name="cell-current_concurrency" :value="row.current_concurrency" :row="row" />
         </div>
@@ -223,7 +228,10 @@ const mountView = async () => {
         TablePageLayout: TablePageLayoutStub,
         DataTable: DataTableStub,
         Pagination: PaginationStub,
-        BaseDialog: true,
+        BaseDialog: {
+          props: ['show'],
+          template: '<div v-if="show"><slot /><slot name="footer" /></div>',
+        },
         ConfirmDialog: true,
         EmptyState: true,
         Select: SelectStub,
@@ -261,6 +269,8 @@ describe('user KeysView column settings', () => {
     localStorage.clear()
 
     listKeys.mockReset()
+    createKey.mockReset().mockResolvedValue(createApiKey())
+    updateKey.mockReset().mockResolvedValue(createApiKey())
     getPublicSettings.mockReset()
     getDashboardApiKeysUsage.mockReset()
     getAvailableGroups.mockReset()
@@ -437,5 +447,47 @@ describe('user KeysView column settings', () => {
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
+  })
+
+  it('submits the selected creation time without rounding it to whole days', async () => {
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await wrapper.get('[data-tour="key-form-name"]').setValue('hour-key')
+    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 42)
+    const expirationToggle = wrapper.findAll('#key-form button').find(button =>
+      button.element.parentElement?.textContent?.includes('keys.expiration')
+    )
+    expect(expirationToggle).toBeDefined()
+    await expirationToggle!.trigger('click')
+    await wrapper.get('input[type="datetime-local"]').setValue('2099-10-07T13:15')
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+
+    expect(createKey).toHaveBeenCalledWith(
+      'hour-key', 42, undefined, [], [], 0, undefined,
+      { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 },
+      new Date('2099-10-07T13:15').toISOString()
+    )
+    wrapper.unmount()
+  })
+
+  it('keeps precise expiration updates and supports clearing expiration', async () => {
+    const key = { ...createApiKey(), group_id: 42, expires_at: '2099-10-07T05:15:00Z' }
+    listKeys.mockResolvedValue({ items: [key], total: 1, page: 1, page_size: 20, pages: 1 })
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'common.edit').trigger('click')
+    await wrapper.get('input[type="datetime-local"]').setValue('2099-10-07T14:30')
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+    expect(updateKey).toHaveBeenLastCalledWith(1, expect.objectContaining({
+      expires_at: new Date('2099-10-07T14:30').toISOString(),
+    }))
+
+    await getButtonByText(wrapper, 'common.edit').trigger('click')
+    await wrapper.get('input[type="datetime-local"]').setValue('')
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+    expect(updateKey).toHaveBeenLastCalledWith(1, expect.objectContaining({ expires_at: '' }))
+    wrapper.unmount()
   })
 })

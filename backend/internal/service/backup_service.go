@@ -167,9 +167,10 @@ type BackupService struct {
 	backingUp bool
 	restoring bool
 
-	storeMu sync.Mutex // 保护 store/s3Cfg 缓存
-	store   BackupObjectStore
-	s3Cfg   *BackupS3Config
+	storeMu         sync.Mutex // 保护 store/s3Cfg 缓存
+	store           BackupObjectStore
+	s3Cfg           *BackupS3Config
+	s3ConfigVersion atomic.Uint64
 
 	recordsMu sync.Mutex // 保护 records 的 load/save 操作
 
@@ -359,7 +360,10 @@ func (s *BackupService) GetS3Config(ctx context.Context) (*BackupS3Config, error
 func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) (*BackupS3Config, error) {
 	// 如果没提供 secret，保留原有值
 	if cfg.SecretAccessKey == "" {
-		old, _ := s.loadS3Config(ctx)
+		old, err := s.loadStoredS3Config(ctx)
+		if err != nil {
+			return nil, err
+		}
 		if old != nil {
 			cfg.SecretAccessKey = old.SecretAccessKey
 		}
@@ -390,6 +394,7 @@ func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) 
 	s.store = nil
 	s.s3Cfg = nil
 	s.storeMu.Unlock()
+	s.s3ConfigVersion.Add(1)
 
 	cfg.SecretAccessKey = ""
 	return &cfg, nil
@@ -1241,13 +1246,9 @@ func (s *BackupService) GetBackupDownloadURL(ctx context.Context, backupID strin
 // ─── 内部方法 ───
 
 func (s *BackupService) loadS3Config(ctx context.Context) (*BackupS3Config, error) {
-	raw, err := s.settingRepo.GetValue(ctx, settingKeyBackupS3Config)
-	if err != nil || raw == "" {
-		return nil, nil //nolint:nilnil // no config is a valid state
-	}
-	var cfg BackupS3Config
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-		return nil, ErrBackupS3ConfigCorrupt
+	cfg, err := s.loadStoredS3Config(ctx)
+	if err != nil || cfg == nil {
+		return cfg, err
 	}
 	// 解密 SecretAccessKey
 	if cfg.SecretAccessKey != "" {
@@ -1258,6 +1259,25 @@ func (s *BackupService) loadS3Config(ctx context.Context) (*BackupS3Config, erro
 		} else {
 			cfg.SecretAccessKey = decrypted
 		}
+	}
+	return cfg, nil
+}
+
+// Keep stored ciphertext untouched when an edit omits the secret.
+func (s *BackupService) loadStoredS3Config(ctx context.Context) (*BackupS3Config, error) {
+	raw, err := s.settingRepo.GetValue(ctx, settingKeyBackupS3Config)
+	if errors.Is(err, ErrSettingNotFound) {
+		return nil, nil //nolint:nilnil // no config is a valid state
+	}
+	if err != nil {
+		return nil, err
+	}
+	if raw == "" {
+		return nil, nil //nolint:nilnil // no config is a valid state
+	}
+	var cfg BackupS3Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil, ErrBackupS3ConfigCorrupt
 	}
 	return &cfg, nil
 }
