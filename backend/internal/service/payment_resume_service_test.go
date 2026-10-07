@@ -85,8 +85,8 @@ func TestCanonicalizeReturnURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalizeReturnURL returned error: %v", err)
 	}
-	if got != "https://example.com/payment/result?b=2" {
-		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://example.com/payment/result?b=2")
+	if got != "https://example.com/payment/result" {
+		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://example.com/payment/result")
 	}
 }
 
@@ -117,8 +117,43 @@ func TestCanonicalizeReturnURLAllowsConfiguredFrontendHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalizeReturnURL returned error: %v", err)
 	}
-	if got != "https://app.example.com/payment/result?from=checkout" {
-		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://app.example.com/payment/result?from=checkout")
+	if got != "https://app.example.com/payment/result" {
+		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://app.example.com/payment/result")
+	}
+}
+
+func TestCanonicalizeReturnURLRemovesClientPaymentParameters(t *testing.T) {
+	t.Parallel()
+	for _, query := range []string{
+		"trade_status=TRADE_SUCCESS",
+		"%74rade_status=TRADE_SUCCESS",
+		"trade_status=WAIT_BUYER_PAY&trade_status=TRADE_SUCCESS",
+		"next=%26trade_status%3DTRADE_SUCCESS",
+		"order_id=1&out_trade_no=OTHER&resume_token=forged&status=success",
+	} {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			canonical, err := CanonicalizeReturnURL("https://example.com/payment/result?"+query, "example.com", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if canonical != "https://example.com/payment/result" {
+				t.Fatalf("client query survived canonicalization: %q", canonical)
+			}
+			returnURL, err := buildPaymentReturnURL(canonical, 42, "ORDER42", "server-token")
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := url.Parse(returnURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			values := parsed.Query()
+			if len(values) != 4 || values.Get("order_id") != "42" || values.Get("out_trade_no") != "ORDER42" ||
+				values.Get("resume_token") != "server-token" || values.Get("status") != "success" {
+				t.Fatalf("unexpected server return context: %v", values)
+			}
+		})
 	}
 }
 

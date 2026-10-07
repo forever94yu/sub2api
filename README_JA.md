@@ -182,6 +182,7 @@ docker compose logs -f sub2api
 **スクリプトの動作内容:**
 - `docker-compose.local.yml`（`docker-compose.yml` として保存）と `.env.example` をダウンロード
 - セキュアな認証情報（JWT_SECRET、TOTP_ENCRYPTION_KEY、POSTGRES_PASSWORD）を自動生成
+- ランダムな管理者ログインメールアドレス（`ADMIN_EMAIL`）を生成し、表示して `.env` に保存
 - 自動生成されたシークレットで `.env` ファイルを作成
 - データディレクトリを作成（バックアップ・移行が容易なローカルディレクトリを使用）
 - 生成された認証情報を参照用に表示
@@ -216,8 +217,10 @@ JWT_SECRET=your_jwt_secret_here
 TOTP_ENCRYPTION_KEY=your_totp_key_here
 
 # オプション: 管理者アカウント
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=your_admin_password
+# 空欄の場合、初回起動時にランダムなログインメールアドレスとパスワードを生成し、ログに出力します。
+# パスワードを指定する場合は 8-72 バイトにしてください。
+ADMIN_EMAIL=
+ADMIN_PASSWORD=
 
 # オプション: カスタムポート
 SERVER_PORT=8080
@@ -266,10 +269,12 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 ブラウザで `http://YOUR_SERVER_IP:8080` を開いてください。
 
-管理者パスワードが自動生成された場合は、ログで確認できます:
+手動デプロイでは、自動生成された管理者メールアドレス（ログインユーザー名）とパスワードを初回起動時のログで確認できます:
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose -f docker-compose.local.yml logs sub2api | grep "Generated admin"
 ```
+
+ワンクリックスクリプトを使用した場合、管理者メールアドレス `ADMIN_EMAIL` は `.env` に保存されます。生成されたパスワードは `docker compose logs sub2api | grep "Generated admin"` で確認できます。
 
 #### アップグレード
 

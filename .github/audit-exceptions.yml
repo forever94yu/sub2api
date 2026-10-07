@@ -3,16 +3,16 @@ exceptions:
   - package: xlsx
     advisory: "GHSA-4r6h-8v6p-xvw6"
     severity: high
-    reason: "Admin export only; switched to dynamic import to reduce exposure (CVE-2023-30533)"
-    mitigation: "Load only on export; restrict export permissions and data scope"
-    expires_on: "2026-10-06"
+    reason: "Admin UsageView lazily imports xlsx only for XLSX.write exports of usage data; no workbook import or XLSX.read path exists (CVE-2023-30533)"
+    mitigation: "Keep xlsx restricted to admin export; never parse uploaded or untrusted workbooks; migrate to a patched distribution or another writer before expiry"
+    expires_on: "2027-01-06"
     owner: "security@your-domain"
   - package: xlsx
     advisory: "GHSA-5pgg-2g8v-p4x9"
     severity: high
-    reason: "Admin export only; switched to dynamic import to reduce exposure (CVE-2024-22363)"
-    mitigation: "Load only on export; restrict export permissions and data scope"
-    expires_on: "2026-10-06"
+    reason: "Temporary risk acceptance for export-only usage: admin UsageView uses XLSX.write and exposes no workbook import or parsing path; the package advisory remains unresolved (CVE-2024-22363)"
+    mitigation: "Keep xlsx restricted to admin export; never parse uploaded or untrusted workbooks; migrate to a patched distribution or another writer before expiry"
+    expires_on: "2027-01-06"
     owner: "security@your-domain"
   - package: lodash
     advisory: "GHSA-r5fr-rjxr-66jc"

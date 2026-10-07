@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/sysutil"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 // installMutex prevents concurrent installation attempts (TOCTOU protection)
@@ -83,19 +84,27 @@ func validateUsername(name string) bool {
 	return validName.MatchString(name) && len(name) <= 63
 }
 
-// validateEmail checks if email format is valid
+// validateEmail also enforces the login endpoint's email binding.
 func validateEmail(email string) bool {
-	_, err := mail.ParseAddress(email)
-	return err == nil && len(email) <= 254
+	if _, err := mail.ParseAddress(email); err != nil || len(email) > 254 {
+		return false
+	}
+	login := struct {
+		Email string `binding:"required,email"`
+	}{Email: email}
+	return binding.Validator.ValidateStruct(&login) == nil
 }
+
+// maxPasswordBytes is bcrypt's input limit.
+const maxPasswordBytes = 72
 
 // validatePassword checks password strength
 func validatePassword(password string) error {
 	if len(password) < 8 {
-		return fmt.Errorf("password must be at least 8 characters")
+		return fmt.Errorf("password must be at least 8 bytes")
 	}
-	if len(password) > 128 {
-		return fmt.Errorf("password must be at most 128 characters")
+	if len(password) > maxPasswordBytes {
+		return fmt.Errorf("password must be at most %d bytes", maxPasswordBytes)
 	}
 	return nil
 }

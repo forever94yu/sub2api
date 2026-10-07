@@ -41,7 +41,7 @@ nano .env
 ./apple-container.sh status
 ```
 
-Open `http://localhost:8080`. If `ADMIN_PASSWORD` is empty, retrieve the generated password with:
+Open `http://localhost:8080`. If `ADMIN_EMAIL` or `ADMIN_PASSWORD` is empty, retrieve the generated admin email (login username) or password from the first-startup logs:
 
 ```bash
 ./apple-container.sh logs app

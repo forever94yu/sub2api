@@ -189,6 +189,7 @@ docker compose logs -f sub2api
 **脚本功能：**
 - 下载 `docker-compose.local.yml`（本地保存为 `docker-compose.yml`）和 `.env.example`
 - 自动生成安全凭证（JWT_SECRET、TOTP_ENCRYPTION_KEY、POSTGRES_PASSWORD）
+- 生成随机管理员登录邮箱（`ADMIN_EMAIL`），显示并保存到 `.env`
 - 创建 `.env` 文件并填充自动生成的密钥
 - 创建数据目录（使用本地目录，便于备份和迁移）
 - 显示生成的凭证供你记录
@@ -223,8 +224,10 @@ JWT_SECRET=your_jwt_secret_here
 TOTP_ENCRYPTION_KEY=your_totp_key_here
 
 # 可选：管理员账号
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=your_admin_password
+# 留空则首次启动时生成随机登录邮箱和密码，并输出到日志。
+# 如需指定密码，长度必须为 8-72 字节。
+ADMIN_EMAIL=
+ADMIN_PASSWORD=
 
 # 可选：自定义端口
 SERVER_PORT=8080
@@ -285,10 +288,12 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 在浏览器中打开 `http://你的服务器IP:8080`
 
-如果管理员密码是自动生成的，在日志中查找：
+手动部署时，自动生成的管理员邮箱（登录用户名）和密码可在首次启动日志中查找：
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose -f docker-compose.local.yml logs sub2api | grep "Generated admin"
 ```
+
+使用一键脚本时，管理员邮箱 `ADMIN_EMAIL` 已保存到 `.env`，生成的密码可通过 `docker compose logs sub2api | grep "Generated admin"` 查看。
 
 #### 升级
 
