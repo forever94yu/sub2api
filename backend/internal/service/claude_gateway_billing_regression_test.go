@@ -74,9 +74,9 @@ func TestClaudeSonnet55ResponseBillingRetainsAuditAndUsesServedModel(t *testing.
 		name, requestedModel, responseModel string
 		wantTotal                           float64
 	}{
-		{"opus downgraded to sonnet", "claude-opus-5-5", "claude-sonnet-5-5", 0.0059 * 1.1},
-		{"sonnet unknown response", "claude-sonnet-5-5", "claude-sonnet-5-6", 0.0059 * 1.1},
-		{"sonnet response cannot raise price", "claude-sonnet-5-5", "claude-opus-5-5", 0.0059 * 1.1},
+		{"opus downgraded to sonnet", "claude-opus-5-5", "claude-sonnet-5-5", 0.0058 * 1.1},
+		{"sonnet unknown response", "claude-sonnet-5-5", "claude-sonnet-5-6", 0.0058 * 1.1},
+		{"sonnet response cannot raise price", "claude-sonnet-5-5", "claude-opus-5-5", 0.0058 * 1.1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}

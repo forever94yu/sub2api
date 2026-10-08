@@ -640,6 +640,45 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 	return nil, fmt.Errorf("upstream error: %d (retries exhausted) message=%s", resp.StatusCode, upstreamMsg)
 }
 
+// Native Claude and Bedrock Messages share the same SSE error and failover rules.
+func (s *GatewayService) handleAnthropicSSEError(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, model string, writerSizeBeforeStream int, sseErr *sseStreamErrorEventError) *UpstreamFailoverError {
+	body := []byte(sseErr.RawData)
+	semanticStatus := http.StatusForbidden
+	if c.Writer.Size() == writerSizeBeforeStream && gjson.GetBytes(body, "error.type").String() == "overloaded_error" {
+		semanticStatus = 529
+		syntheticResp := &http.Response{
+			StatusCode: semanticStatus,
+			Header:     resp.Header.Clone(),
+			Body:       io.NopCloser(bytes.NewReader(body)),
+		}
+		s.handleFailoverSideEffects(ctx, syntheticResp, account, model)
+	}
+	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	upstreamDetail := ""
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+		if maxBytes <= 0 {
+			maxBytes = 2048
+		}
+		upstreamDetail = truncateString(sseErr.RawData, maxBytes)
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           account.Platform,
+		AccountID:          account.ID,
+		AccountName:        account.Name,
+		UpstreamStatusCode: semanticStatus,
+		UpstreamRequestID:  resp.Header.Get("x-request-id"),
+		Kind:               "stream_error",
+		Message:            upstreamMsg,
+		Detail:             upstreamDetail,
+	})
+	logger.LegacyPrintf("service.gateway",
+		"[Forward] SSE error event in stream: Account=%d(%s) RequestID=%s Body=%s",
+		account.ID, account.Name, resp.Header.Get("x-request-id"), truncateString(sseErr.RawData, 1000),
+	)
+	return &UpstreamFailoverError{StatusCode: semanticStatus, ResponseBody: body}
+}
+
 // streamingResult 流式响应结果
 type streamingResult struct {
 	usage            *ClaudeUsage

@@ -224,7 +224,9 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 	parsed.MetadataUserID = gjson.Get(jsonStr, "metadata.user_id").String()
 
 	thinkingType := gjson.Get(jsonStr, "thinking.type").String()
-	parsed.ThinkingEnabled = thinkingType == "enabled" || thinkingType == "adaptive" || (protocol == domain.PlatformAnthropic && claude.HasAdaptiveThinkingDefault(parsed.Model))
+	parsed.ThinkingEnabled = thinkingType == "enabled" || thinkingType == "adaptive" ||
+		(protocol == domain.PlatformAnthropic && claude.HasAdaptiveThinkingDefault(parsed.Model) &&
+			(!claude.IsHaiku55(parsed.Model) || thinkingType != "disabled"))
 
 	parsed.OutputEffort = strings.TrimSpace(gjson.Get(jsonStr, "output_config.effort").String())
 	if protocol == domain.PlatformAnthropic {
@@ -575,6 +577,9 @@ func validateClaudeModelRequest(body []byte, model string) error {
 	if !claude.HasAdaptiveThinkingDefault(model) {
 		return nil
 	}
+	if claude.IsHaiku55(model) {
+		return validateHaiku55Request(body)
+	}
 	if claude.IsSonnet55(model) {
 		if err := validateSonnet55Thinking(body); err != nil {
 			return err
@@ -591,6 +596,59 @@ func validateClaudeModelRequest(body []byte, model string) error {
 	switch gjson.GetBytes(body, "tool_choice.type").String() {
 	case "any", "tool", "function", "custom", "namespace":
 		return fmt.Errorf("%s does not support forced tool_choice; use auto or none", model)
+	}
+	return nil
+}
+
+func validateHaiku55Request(body []byte) error {
+	thinking := gjson.GetBytes(body, "thinking")
+	thinkingType := thinking.Get("type").String()
+	if thinkingType == "enabled" || thinking.Get("budget_tokens").Exists() {
+		return fmt.Errorf("claude-haiku-5-5 does not support manual thinking budgets; use adaptive thinking and output_config.effort")
+	}
+	switch thinkingType {
+	case "", "adaptive", "disabled":
+	default:
+		return fmt.Errorf("claude-haiku-5-5 only supports adaptive or disabled thinking")
+	}
+
+	effort := "medium"
+	if value := gjson.GetBytes(body, "output_config.effort"); value.Exists() {
+		effort = value.String()
+	}
+	switch effort {
+	case "low", "medium", "high", "xhigh", "max":
+	default:
+		return fmt.Errorf("claude-haiku-5-5 requires low, medium, high, xhigh or max effort")
+	}
+	if thinkingType == "disabled" {
+		if effort == "xhigh" || effort == "max" {
+			return fmt.Errorf("claude-haiku-5-5 thinking.type=disabled requires low, medium or high effort")
+		}
+		for _, message := range gjson.GetBytes(body, "messages").Array() {
+			if value := message.Get("output_config.effort"); value.Exists() && value.String() != effort {
+				return fmt.Errorf("claude-haiku-5-5 thinking.type=disabled cannot change output_config.effort between messages")
+			}
+		}
+	}
+
+	temperature := gjson.GetBytes(body, "temperature")
+	topP := gjson.GetBytes(body, "top_p")
+	if temperature.Exists() && (temperature.Type != gjson.Number || temperature.Float() != 1) {
+		return fmt.Errorf("claude-haiku-5-5 only accepts temperature=1; omit sampling parameters")
+	}
+	if topP.Exists() && (topP.Type != gjson.Number || topP.Float() != 0.99) {
+		return fmt.Errorf("claude-haiku-5-5 only accepts top_p=0.99; omit sampling parameters")
+	}
+	if temperature.Exists() && topP.Exists() {
+		return fmt.Errorf("claude-haiku-5-5 does not accept both temperature and top_p")
+	}
+	if gjson.GetBytes(body, "top_k").Exists() {
+		return fmt.Errorf("claude-haiku-5-5 does not accept top_k")
+	}
+	messages := gjson.GetBytes(body, "messages").Array()
+	if len(messages) > 0 && messages[len(messages)-1].Get("role").String() == "assistant" {
+		return fmt.Errorf("claude-haiku-5-5 does not support assistant prefill; end the conversation with a user turn")
 	}
 	return nil
 }
@@ -666,7 +724,7 @@ func FilterThinkingBlocks(body []byte, mappedModel string) []byte {
 //     "Expected `thinking` or `redacted_thinking`, but found `text`"
 //
 // Strategy (B: preserve content as text):
-//   - Remove top-level `thinking`, except Sonnet 5.5's explicit between_tools mode.
+//   - Keep explicit modes that suppress default thinking; remove other top-level `thinking`.
 //   - Convert `thinking` blocks to `text` blocks (preserve the thinking content).
 //   - Remove `redacted_thinking` blocks (cannot be converted to text).
 //   - Ensure no message ends up with empty content.
@@ -710,8 +768,10 @@ func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
 	// 尽量避免把整个 body Unmarshal 成 map（会产生大量 map/接口分配）。
 	// 这里先用 gjson 把 messages 子树摘出来，后续只对 messages 做 Unmarshal/Marshal。
 	jsonStr := *(*string)(unsafe.Pointer(&body))
-	// Removing between_tools would enable the model's default adaptive thinking.
-	preserveBetweenTools := claude.IsSonnet55(mappedModel) && gjson.Get(jsonStr, "thinking.type").String() == "between_tools"
+	// Removing either mode would enable the model's default adaptive thinking.
+	thinkingType := gjson.Get(jsonStr, "thinking.type").String()
+	preserveThinkingMode := (claude.IsSonnet55(mappedModel) && thinkingType == "between_tools") ||
+		(claude.IsHaiku55(mappedModel) && thinkingType == "disabled")
 	msgsRes := gjson.Get(jsonStr, "messages")
 	if !msgsRes.Exists() || !msgsRes.IsArray() {
 		return body
@@ -725,7 +785,7 @@ func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
 		bytes.Contains(body, patternTypeRedactedSpaced) ||
 		bytes.Contains(body, patternThinkingFieldSpaced)
 	if !hasEmptyContent && !hasEmptyTextBlock && !containsThinkingBlocks {
-		if topThinking := gjson.Get(jsonStr, "thinking"); topThinking.Exists() && !preserveBetweenTools {
+		if topThinking := gjson.Get(jsonStr, "thinking"); topThinking.Exists() && !preserveThinkingMode {
 			if out, err := sjson.DeleteBytes(body, "thinking"); err == nil {
 				out = removeThinkingDependentContextStrategies(out)
 				return out
@@ -743,7 +803,7 @@ func FilterThinkingBlocksForRetry(body []byte, mappedModel string) []byte {
 	modified := false
 
 	// Disable top-level thinking mode for retry to avoid structural/signature constraints upstream.
-	deleteTopLevelThinking := gjson.Get(jsonStr, "thinking").Exists() && !preserveBetweenTools
+	deleteTopLevelThinking := gjson.Get(jsonStr, "thinking").Exists() && !preserveThinkingMode
 
 	for i := 0; i < len(messages); i++ {
 		msgMap, ok := messages[i].(map[string]any)
@@ -1232,8 +1292,10 @@ func FilterSignatureSensitiveBlocksForRetry(body []byte, mappedModel string) []b
 	modified := false
 
 	// Disable top-level thinking for retry to avoid structural/signature constraints upstream.
-	preserveBetweenTools := claude.IsSonnet55(mappedModel) && gjson.GetBytes(body, "thinking.type").String() == "between_tools"
-	if _, exists := req["thinking"]; exists && !preserveBetweenTools {
+	thinkingType := gjson.GetBytes(body, "thinking.type").String()
+	preserveThinkingMode := (claude.IsSonnet55(mappedModel) && thinkingType == "between_tools") ||
+		(claude.IsHaiku55(mappedModel) && thinkingType == "disabled")
+	if _, exists := req["thinking"]; exists && !preserveThinkingMode {
 		delete(req, "thinking")
 		modified = true
 		// Remove context_management strategies that require thinking to be enabled

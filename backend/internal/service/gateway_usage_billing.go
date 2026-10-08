@@ -343,6 +343,18 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	}
 
 	cmd.Normalize()
+	settledActual := p.Cost.settledActualCost()
+	if p.IsSubscriptionBill && p.Subscription != nil && p.Cost.TotalCost > 0 {
+		cmd.SubscriptionCost = settledActual
+	} else if p.Cost.ActualCost > 0 {
+		cmd.BalanceCost = settledActual
+	}
+	if p.shouldDeductAPIKeyQuota() {
+		cmd.APIKeyQuotaCost = settledActual
+	}
+	if p.shouldUpdateRateLimits() {
+		cmd.APIKeyRateLimitCost = settledActual
+	}
 	if p.shouldUpdateAccountQuota() {
 		// Normalize must fingerprint the original amount before the corrected quota
 		// amount is applied, preserving idempotency for retries across upgrades.
@@ -357,11 +369,11 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
-	if p.Cost != nil && p.Account != nil && (p.Account.Platform == PlatformAnthropic || p.Account.Platform == PlatformOpenAI) {
+	if p.Cost != nil && p.Account != nil && (p.Account.Platform == PlatformAnthropic || p.Account.Platform == PlatformOpenAI || p.Account.Platform == PlatformGrok) {
 		// Fingerprint the raw amounts first, then use one settled debit for the
 		// log, legacy writes, caches, and notifications without mutating the caller.
 		settledCost := *p.Cost
-		settledCost.ActualCost = QuantizeUsageBillingAmount(settledCost.ActualCost)
+		settledCost.ActualCost = settledCost.settledActualCost()
 		settledParams := *p
 		settledParams.Cost = &settledCost
 		p = &settledParams
@@ -1046,8 +1058,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 			if tokenCost == nil {
 				return searchCost
 			}
-			tokenCost.TotalCost += searchCost.TotalCost
-			tokenCost.ActualCost += searchCost.ActualCost
+			addCostBreakdownTotals(tokenCost, searchCost)
 		}
 	}
 	return tokenCost

@@ -4,11 +4,64 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestOpenAIGatewayServiceRecordUsage_GrokSearchSettlementMatchesLog(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		for _, subscription := range []bool{false, true} {
+			t.Run(fmt.Sprintf("legacy=%t/subscription=%t", legacy, subscription), func(t *testing.T) {
+				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+				userRepo := &openAIRecordUsageUserRepoStub{}
+				subRepo := &claudeSettlementSubscriptionRepo{}
+				quota := &openAIRecordUsageAPIKeyQuotaStub{}
+				billingRepo := &openAIRecordUsageBillingRepoStub{}
+				svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, userRepo, subRepo, nil)
+				if legacy {
+					svc.usageBillingRepo = nil
+				}
+				svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+					"grok-4.3": {InputCostPerToken: 1.25e-6},
+				}})
+				group := &Group{ID: 5, Platform: PlatformGrok, RateMultiplier: 0.3333}
+				input := &OpenAIRecordUsageInput{
+					Result: &OpenAIForwardResult{RequestID: "grok-search-exact-half", Model: "grok-4.3", Usage: OpenAIUsage{InputTokens: 40}, SearchCount: 9},
+					APIKey: &APIKey{ID: 2, Quota: 100, RateLimit5h: 100, GroupID: &group.ID, Group: group},
+					User:   &User{ID: 1}, Account: &Account{ID: 3, Platform: PlatformGrok}, APIKeyService: quota,
+				}
+				if subscription {
+					group.SubscriptionType = SubscriptionTypeSubscription
+					input.Subscription = &UserSubscription{ID: 4}
+				}
+				require.NoError(t, svc.RecordUsage(context.Background(), input))
+				require.NotNil(t, usageRepo.lastLog)
+				// (40 * 1.25 / 1e6 + 9 * 5 / 1000) * .3333 = .015015165.
+				require.Equal(t, 0.01501517, usageRepo.lastLog.ActualCost)
+				if legacy {
+					require.Equal(t, 0.01501517, quota.lastAmount)
+					if subscription {
+						require.Equal(t, 0.01501517, subRepo.amount)
+					} else {
+						require.Equal(t, 0.01501517, userRepo.lastAmount)
+					}
+				} else {
+					require.NotNil(t, billingRepo.lastCmd)
+					require.Equal(t, 0.01501517, billingRepo.lastCmd.APIKeyQuotaCost)
+					require.Equal(t, 0.01501517, billingRepo.lastCmd.APIKeyRateLimitCost)
+					if subscription {
+						require.Equal(t, 0.01501517, billingRepo.lastCmd.SubscriptionCost)
+					} else {
+						require.Equal(t, 0.01501517, billingRepo.lastCmd.BalanceCost)
+					}
+				}
+			})
+		}
+	}
+}
 
 func TestCalculateOpenAIRecordUsageCost_SearchIsAdditiveToTokens(t *testing.T) {
 	t.Parallel()

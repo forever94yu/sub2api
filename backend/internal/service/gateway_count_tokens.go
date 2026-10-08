@@ -28,7 +28,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		validationModel = account.GetMappedModel(validationModel)
 	}
 	if account != nil && account.Platform == PlatformAnthropic && !account.IsBedrock() &&
-		(account.Type != AccountTypeServiceAccount || claude.IsSonnet55(validationModel)) {
+		(account.Type != AccountTypeServiceAccount || claude.IsSonnet55(validationModel) || claude.IsHaiku55(validationModel)) {
 		if err := validateClaudeModelRequest(parsed.Body.Bytes(), validationModel); err != nil {
 			s.countTokensError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return err

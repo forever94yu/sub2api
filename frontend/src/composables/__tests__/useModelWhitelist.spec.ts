@@ -7,6 +7,27 @@ vi.mock('@/api/admin/accounts', () => ({
 import { allModels, buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
+  it('makes Haiku 5.5 selectable without changing existing Haiku models', () => {
+    expect(getModelsByPlatform('claude')).toContain('claude-haiku-5-5')
+    expect(getModelsByPlatform('anthropic')).toContain('claude-haiku-5-5')
+    expect(getModelsByPlatform('claude')).toContain('claude-haiku-4-5-20251001')
+    expect(allModels.filter(model => model.value === 'claude-haiku-5-5')).toEqual([
+      { value: 'claude-haiku-5-5', label: 'claude-haiku-5-5' }
+    ])
+  })
+
+  it.each([
+    ['claude', 'claude-haiku-5-5'],
+    ['anthropic', 'claude-haiku-5-5'],
+    ['bedrock', 'anthropic.claude-haiku-5-5']
+  ])('saves the official Haiku 5.5 preset for %s accounts', (platform, target) => {
+    const preset = getPresetMappingsByPlatform(platform).find(mapping => mapping.from === 'claude-haiku-5-5')
+    expect(preset).toBeDefined()
+    expect(buildModelMappingObject('mapping', [], preset ? [preset] : [])).toEqual({
+      'claude-haiku-5-5': target
+    })
+  })
+
   it('makes Sonnet 5.5 selectable in Claude model lists', () => {
     expect(getModelsByPlatform('claude')).toContain('claude-sonnet-5-5')
     expect(getModelsByPlatform('anthropic')).toContain('claude-sonnet-5-5')

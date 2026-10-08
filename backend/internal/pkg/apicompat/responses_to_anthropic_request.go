@@ -18,6 +18,20 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 	if err != nil {
 		return nil, err
 	}
+	if claude.IsHaiku55(req.Model) {
+		if req.Temperature != nil && *req.Temperature != 1 {
+			return nil, fmt.Errorf("%s only accepts temperature=1; omit sampling parameters", req.Model)
+		}
+		if req.TopP != nil && *req.TopP != 0.99 {
+			return nil, fmt.Errorf("%s only accepts top_p=0.99; omit sampling parameters", req.Model)
+		}
+		if req.Temperature != nil && req.TopP != nil {
+			return nil, fmt.Errorf("%s does not accept both temperature and top_p", req.Model)
+		}
+		if len(messages) > 0 && messages[len(messages)-1].Role == "assistant" {
+			return nil, fmt.Errorf("%s does not support assistant prefill; end the conversation with a user turn", req.Model)
+		}
+	}
 
 	out := &AnthropicRequest{
 		Model:       req.Model,
@@ -65,7 +79,7 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 				return nil, fmt.Errorf("invalid tool_choice: %w", err)
 			}
 		}
-		if choice.Type == "any" || choice.Type == "tool" {
+		if !claude.IsHaiku55(req.Model) && (choice.Type == "any" || choice.Type == "tool") {
 			return nil, fmt.Errorf("%s does not support forced tool_choice; use auto or none", req.Model)
 		}
 		effort := "medium"
@@ -78,6 +92,11 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		if claude.IsSonnet55(req.Model) && effort == "none" {
 			out.Thinking = &AnthropicThinking{Type: "between_tools"}
 			out.OutputConfig = &AnthropicOutputConfig{Effort: "high"}
+			return out, nil
+		}
+		if claude.IsHaiku55(req.Model) && effort == "none" {
+			out.Thinking = &AnthropicThinking{Type: "disabled"}
+			out.OutputConfig = &AnthropicOutputConfig{Effort: "medium"}
 			return out, nil
 		}
 		switch effort {

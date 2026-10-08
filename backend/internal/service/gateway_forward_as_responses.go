@@ -53,7 +53,11 @@ func (s *GatewayService) ForwardAsResponses(
 	// 3. Convert Responses → Anthropic
 	// Resolve the final upstream model before model-specific conversion.
 	mappedModel := originalModel
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+	if account.IsBedrock() {
+		if resolved, ok := ResolveBedrockModelID(account, originalModel); ok && isBedrockMantleModelID(resolved) {
+			mappedModel = resolved
+		}
+	} else if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
 	if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
@@ -160,6 +164,9 @@ func (s *GatewayService) ForwardAsResponses(
 		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if account.IsBedrock() && isBedrockMantleModelID(mappedModel) && resp.Header.Get("x-request-id") == "" {
+		resp.Header.Set("x-request-id", resp.Header.Get("request-id"))
+	}
 
 	// 12. Handle error response with failover
 	if resp.StatusCode >= 400 {

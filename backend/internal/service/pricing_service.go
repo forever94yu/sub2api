@@ -191,6 +191,7 @@ type LiteLLMModelPricing struct {
 	LongContextInputTokenThreshold      int     `json:"long_context_input_token_threshold,omitempty"`
 	LongContextInputCostMultiplier      float64 `json:"long_context_input_cost_multiplier,omitempty"`
 	LongContextOutputCostMultiplier     float64 `json:"long_context_output_cost_multiplier,omitempty"`
+	LongContextPricingRequired          bool    `json:"long_context_pricing_required,omitempty"`
 	SupportsServiceTier                 bool    `json:"supports_service_tier"`
 	LiteLLMProvider                     string  `json:"litellm_provider"`
 	Mode                                string  `json:"mode"`
@@ -225,6 +226,7 @@ type LiteLLMRawEntry struct {
 	LongContextInputTokenThreshold      *int     `json:"long_context_input_token_threshold"`
 	LongContextInputCostMultiplier      *float64 `json:"long_context_input_cost_multiplier"`
 	LongContextOutputCostMultiplier     *float64 `json:"long_context_output_cost_multiplier"`
+	LongContextPricingRequired          *bool    `json:"long_context_pricing_required"`
 	SupportsServiceTier                 bool     `json:"supports_service_tier"`
 	LiteLLMProvider                     string   `json:"litellm_provider"`
 	Mode                                string   `json:"mode"`
@@ -562,6 +564,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		if entry.LongContextOutputCostMultiplier != nil {
 			pricing.LongContextOutputCostMultiplier = *entry.LongContextOutputCostMultiplier
 		}
+		if entry.LongContextPricingRequired != nil {
+			pricing.LongContextPricingRequired = *entry.LongContextPricingRequired
+		}
 		if entry.OutputCostPerImage != nil {
 			pricing.OutputCostPerImage = *entry.OutputCostPerImage
 		}
@@ -572,6 +577,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			pricing.InputCostPerImageToken = *entry.InputCostPerImageToken
 		}
 		repairLegacyClaudeMirrorPricing(modelName, pricing)
+		completeClaudeHaiku55PromptPricing(modelName, &entry, pricing)
 
 		result[modelName] = pricing
 	}
@@ -587,9 +593,8 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 	return result, nil
 }
 
-// Older persisted LiteLLM mirrors copied Sonnet's $6/MTok one-hour write price
-// into Claude 3 rows. Repair only those known erroneous values at standard base
-// rates; custom prices and cloud-provider cards retain their configured values.
+// Repair known outdated official cache prices in persisted mirrors; custom
+// prices and cloud-provider cards retain their configured values.
 func repairLegacyClaudeMirrorPricing(model string, pricing *LiteLLMModelPricing) {
 	if pricing == nil || pricing.LiteLLMProvider != "anthropic" || !strings.HasPrefix(model, "claude-") {
 		return
@@ -612,7 +617,36 @@ func repairLegacyClaudeMirrorPricing(model string, pricing *LiteLLMModelPricing)
 		if pricing.InputCostPerToken == 15e-6 && pricing.OutputCostPerToken == 75e-6 && pricing.CacheCreationInputTokenCostAbove1hr == 6e-6 {
 			pricing.CacheCreationInputTokenCostAbove1hr = 30e-6
 		}
+	case "claude-sonnet-5-5":
+		if pricing.InputCostPerToken == 2e-6 && pricing.OutputCostPerToken == 10e-6 &&
+			pricing.CacheCreationInputTokenCost == 2.5e-6 && pricing.CacheCreationInputTokenCostAbove1hr == 4e-6 &&
+			pricing.CacheReadInputTokenCost == 0.2e-6 {
+			pricing.CacheReadInputTokenCost = 0.1e-6
+		}
 	}
+}
+
+// External catalogs may have Haiku's official base rates before they gain our
+// prompt-length metadata. Complete that exact card while preserving overrides.
+func completeClaudeHaiku55PromptPricing(model string, entry *LiteLLMRawEntry, pricing *LiteLLMModelPricing) {
+	if pricing.LiteLLMProvider != "anthropic" || !strings.HasPrefix(model, "claude-") || canonicalClaudeModelForPricing(model) != "claude-haiku-5-5" {
+		return
+	}
+	if pricing.InputCostPerToken != 0.1e-6 || pricing.OutputCostPerToken != 0.5e-6 ||
+		pricing.CacheCreationInputTokenCost != 0.125e-6 || pricing.CacheCreationInputTokenCostAbove1hr != 0.2e-6 ||
+		pricing.CacheReadInputTokenCost != 0.01e-6 {
+		return
+	}
+	if (entry.LongContextPricingRequired != nil && !*entry.LongContextPricingRequired) ||
+		(entry.LongContextInputTokenThreshold != nil && *entry.LongContextInputTokenThreshold != 100000) ||
+		(entry.LongContextInputCostMultiplier != nil && *entry.LongContextInputCostMultiplier != 5) ||
+		(entry.LongContextOutputCostMultiplier != nil && *entry.LongContextOutputCostMultiplier != 5) {
+		return
+	}
+	pricing.LongContextInputTokenThreshold = 100000
+	pricing.LongContextInputCostMultiplier = 5
+	pricing.LongContextOutputCostMultiplier = 5
+	pricing.LongContextPricingRequired = true
 }
 
 // loadPricingData 从本地文件加载价格数据

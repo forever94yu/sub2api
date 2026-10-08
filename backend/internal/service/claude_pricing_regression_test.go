@@ -11,7 +11,7 @@ import (
 )
 
 // Rates are USD per million tokens, verified against Anthropic's pricing page:
-// https://platform.claude.com/docs/en/about-claude/pricing (2026-09-24).
+// https://platform.claude.com/docs/en/about-claude/pricing (2026-10-08).
 var claudeOfficialRates = []struct {
 	model               string
 	input, output, read float64
@@ -27,13 +27,14 @@ var claudeOfficialRates = []struct {
 	{"claude-opus-4-1", 15, 75, 1.5},
 	{"claude-opus-4", 15, 75, 1.5},
 	{"claude-3-opus", 15, 75, 1.5},
-	{"claude-sonnet-5-5", 2, 10, 0.2},
+	{"claude-sonnet-5-5", 2, 10, 0.1},
 	{"claude-sonnet-5", 2, 10, 0.2},
 	{"claude-sonnet-4-6", 3, 15, 0.3},
 	{"claude-sonnet-4-5", 3, 15, 0.3},
 	{"claude-sonnet-4", 3, 15, 0.3},
 	{"claude-3-7-sonnet", 3, 15, 0.3},
 	{"claude-3-5-sonnet", 3, 15, 0.3},
+	{"claude-haiku-5-5", 0.1, 0.5, 0.01},
 	{"claude-haiku-4-5", 1, 5, 0.1},
 	{"claude-3-5-haiku", 0.8, 4, 0.08},
 	{"claude-3-haiku", 0.25, 1.25, 0.025},

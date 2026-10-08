@@ -22,6 +22,9 @@ import (
 // 清理 body 中 Anthropic API 专有字段、修复 thinking/tool_use ID、过滤 beta token，
 // 同时过滤 HTTP header 中的 anthropic-beta（防止 Passthrough 路径透传不支持的 token）。
 func (s *GatewayService) ApplyBedrockCCCompat(c *gin.Context, body []byte, model string, account *Account, groupID *int64) []byte {
+	if mappedModel, ok := ResolveBedrockModelID(account, model); ok && isBedrockMantleModelID(mappedModel) {
+		return body
+	}
 	if !s.isBedrockCCCompatEnabled(c.Request.Context(), account, groupID) {
 		return body
 	}
@@ -113,7 +116,7 @@ func (s *GatewayService) forwardBedrock(
 	}
 
 	// 执行上游请求（含重试）
-	resp, err := s.executeBedrockUpstream(ctx, c, account, bedrockBody, mappedModel, region, reqStream, signer, bedrockAPIKey, proxyURL)
+	resp, err := s.executeBedrockUpstream(ctx, c, account, bedrockBody, mappedModel, region, reqStream, signer, bedrockAPIKey, proxyURL, betaTokens...)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +127,9 @@ func (s *GatewayService) forwardBedrock(
 	if awsReqID := resp.Header.Get("x-amzn-requestid"); awsReqID != "" && resp.Header.Get("x-request-id") == "" {
 		resp.Header.Set("x-request-id", awsReqID)
 	}
+	if isBedrockMantleModelID(mappedModel) && resp.Header.Get("x-request-id") == "" {
+		resp.Header.Set("x-request-id", resp.Header.Get("request-id"))
+	}
 
 	// 错误/failover 处理
 	if resp.StatusCode >= 400 {
@@ -133,6 +139,9 @@ func (s *GatewayService) forwardBedrock(
 	// Bedrock 分支绕过通用 Forward 成功路径，这里保持上游接受回调语义一致。
 	if parsed.OnUpstreamAccepted != nil {
 		parsed.OnUpstreamAccepted()
+	}
+	if isBedrockMantleModelID(mappedModel) {
+		return s.handleBedrockMantleResponse(ctx, resp, c, account, reqModel, mappedModel, reqStream, startTime)
 	}
 
 	// 响应处理
@@ -181,6 +190,7 @@ func (s *GatewayService) executeBedrockUpstream(
 	signer *BedrockSigner,
 	apiKey string,
 	proxyURL string,
+	betaTokens ...string,
 ) (*http.Response, error) {
 	var resp *http.Response
 	var err error
@@ -188,9 +198,9 @@ func (s *GatewayService) executeBedrockUpstream(
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		var upstreamReq *http.Request
 		if account.IsBedrockAPIKey() {
-			upstreamReq, err = s.buildUpstreamRequestBedrockAPIKey(ctx, body, modelID, region, stream, apiKey)
+			upstreamReq, err = s.buildUpstreamRequestBedrockAPIKey(ctx, body, modelID, region, stream, apiKey, betaTokens...)
 		} else {
-			upstreamReq, err = s.buildUpstreamRequestBedrock(ctx, body, modelID, region, stream, signer)
+			upstreamReq, err = s.buildUpstreamRequestBedrock(ctx, body, modelID, region, stream, signer, betaTokens...)
 		}
 		if err != nil {
 			return nil, err
@@ -342,6 +352,7 @@ func (s *GatewayService) buildUpstreamRequestBedrock(
 	region string,
 	stream bool,
 	signer *BedrockSigner,
+	betaTokens ...string,
 ) (*http.Request, error) {
 	targetURL := BuildBedrockURL(region, modelID, stream)
 
@@ -352,9 +363,14 @@ func (s *GatewayService) buildUpstreamRequestBedrock(
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	serviceName := "bedrock"
+	if isBedrockMantleModelID(modelID) {
+		setBedrockMantleHeaders(req, stream, betaTokens)
+		serviceName = "bedrock-mantle"
+	}
 
 	// SigV4 签名
-	if err := signer.SignRequest(ctx, req, body); err != nil {
+	if err := signer.signRequest(ctx, req, body, serviceName); err != nil {
 		return nil, fmt.Errorf("sign bedrock request: %w", err)
 	}
 
@@ -369,6 +385,7 @@ func (s *GatewayService) buildUpstreamRequestBedrockAPIKey(
 	region string,
 	stream bool,
 	apiKey string,
+	betaTokens ...string,
 ) (*http.Request, error) {
 	targetURL := BuildBedrockURL(region, modelID, stream)
 
@@ -380,6 +397,9 @@ func (s *GatewayService) buildUpstreamRequestBedrockAPIKey(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if isBedrockMantleModelID(modelID) {
+		setBedrockMantleHeaders(req, stream, betaTokens)
+	}
 
 	return req, nil
 }

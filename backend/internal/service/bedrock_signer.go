@@ -51,14 +51,14 @@ func NewBedrockSignerFromAccount(account *Account) (*BedrockSigner, error) {
 	return NewBedrockSigner(accessKeyID, secretAccessKey, sessionToken, region), nil
 }
 
-// SignRequest 对 HTTP 请求进行 SigV4 签名
-// 重要约束：调用此方法前，req 应只包含 AWS 相关的 header（如 Content-Type、Accept）。
-// 非 AWS header（如 anthropic-beta）会参与签名计算，如果 Bedrock 服务端不识别这些 header，
-// 签名验证可能失败。litellm 通过 _filter_headers_for_aws_signature 实现头过滤，
-// 当前实现中 buildUpstreamRequestBedrock 仅设置了 Content-Type 和 Accept，因此是安全的。
+// SignRequest signs an InvokeModel request after its headers and body are final.
 func (s *BedrockSigner) SignRequest(ctx context.Context, req *http.Request, body []byte) error {
+	return s.signRequest(ctx, req, body, "bedrock")
+}
+
+func (s *BedrockSigner) signRequest(ctx context.Context, req *http.Request, body []byte, service string) error {
 	payloadHash := sha256Hash(body)
-	return s.signer.SignHTTP(ctx, s.credentials, req, payloadHash, "bedrock", s.region, time.Now())
+	return s.signer.SignHTTP(ctx, s.credentials, req, payloadHash, service, s.region, time.Now())
 }
 
 func sha256Hash(data []byte) string {

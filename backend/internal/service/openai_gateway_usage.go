@@ -608,8 +608,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 		return tokenCost, nil
 	}
 	// Additive: tokens + search surcharge.
-	tokenCost.TotalCost += searchCost.TotalCost
-	tokenCost.ActualCost += searchCost.ActualCost
+	addCostBreakdownTotals(tokenCost, searchCost)
 	return tokenCost, nil
 }
 

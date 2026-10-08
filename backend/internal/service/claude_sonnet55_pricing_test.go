@@ -24,7 +24,7 @@ func TestClaudeSonnet55PricingAliasesAndVersionIsolation(t *testing.T) {
 			require.Equal(t, 10e-6, pricing.OutputPricePerToken, model)
 			require.Equal(t, 2.5e-6, pricing.CacheCreation5mPrice, model)
 			require.Equal(t, 4e-6, pricing.CacheCreation1hPrice, model)
-			require.InDelta(t, 0.2e-6, pricing.CacheReadPricePerToken, 1e-18, model)
+			require.InDelta(t, 0.1e-6, pricing.CacheReadPricePerToken, 1e-18, model)
 			require.True(t, svc.HasIdentifiedTokenPricing(model), model)
 		}
 		for _, model := range []string{"claude-sonnet-5-6", "claude-sonnet-55", "claude-sonnet-5-50", "claude-sonnet-5-5-preview"} {
@@ -68,6 +68,28 @@ func TestClaudeSonnet55PricingLoadsMissingPersistedEntry(t *testing.T) {
 	require.Same(t, explicit, merged["claude-sonnet-5-5"], "an explicit remote rate must retain precedence")
 }
 
+func TestClaudeSonnet55PricingRefreshesKnownPersistedOfficialRate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-pricing.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"claude-sonnet-5-5":{"litellm_provider":"anthropic","input_cost_per_token":0.000002,"output_cost_per_token":0.00001,"cache_creation_input_token_cost":0.0000025,"cache_creation_input_token_cost_above_1hr":0.000004,"cache_read_input_token_cost":0.0000002},
+		"claude-sonnet-5-5-20260915":{"litellm_provider":"anthropic","input_cost_per_token":0.000007,"output_cost_per_token":0.00001,"cache_creation_input_token_cost":0.0000025,"cache_creation_input_token_cost_above_1hr":0.000004,"cache_read_input_token_cost":0.0000002},
+		"anthropic.claude-sonnet-5-5":{"litellm_provider":"bedrock","input_cost_per_token":0.000002,"output_cost_per_token":0.00001,"cache_creation_input_token_cost":0.0000025,"cache_creation_input_token_cost_above_1hr":0.000004,"cache_read_input_token_cost":0.0000002},
+		"claude-sonnet-5":{"litellm_provider":"anthropic","input_cost_per_token":0.000002,"output_cost_per_token":0.00001,"cache_creation_input_token_cost":0.0000025,"cache_creation_input_token_cost_above_1hr":0.000004,"cache_read_input_token_cost":0.0000002}
+	}`), 0600))
+	dynamic := &PricingService{}
+	require.NoError(t, dynamic.loadPricingData(path))
+	for model, wantRead := range map[string]float64{
+		"claude-sonnet-5-5":           0.1e-6,
+		"claude-sonnet-5-5-20260915":  0.2e-6,
+		"anthropic.claude-sonnet-5-5": 0.2e-6,
+		"claude-sonnet-5":             0.2e-6,
+	} {
+		cost, err := NewBillingService(&config.Config{}, dynamic).CalculateCost(model, UsageTokens{CacheReadTokens: 1000000}, 1)
+		require.NoError(t, err)
+		require.InDelta(t, 1000000*wantRead, cost.CacheReadCost, 1e-12, model)
+	}
+}
+
 func TestClaudeSonnet55PricingLongContextAndModifiers(t *testing.T) {
 	for _, dynamic := range []*PricingService{nil, newClaudeCatalogPricingService(t)} {
 		svc := NewBillingService(&config.Config{}, dynamic)
@@ -89,8 +111,8 @@ func TestClaudeSonnet55PricingLongContextAndModifiers(t *testing.T) {
 					require.InDelta(t, float64(tokens.InputTokens)*2e-6*tt.multiplier, cost.InputCost, 1e-12)
 					require.InDelta(t, 200*10e-6*tt.multiplier, cost.OutputCost, 1e-12)
 					require.InDelta(t, (20000*2.5e-6+20000*4e-6)*tt.multiplier, cost.CacheCreationCost, 1e-12)
-					require.InDelta(t, 60000*0.2e-6*tt.multiplier, cost.CacheReadCost, 1e-12)
-					standard := float64(tokens.InputTokens)*2e-6 + 200*10e-6 + 20000*2.5e-6 + 20000*4e-6 + 60000*0.2e-6
+					require.InDelta(t, 60000*0.1e-6*tt.multiplier, cost.CacheReadCost, 1e-12)
+					standard := float64(tokens.InputTokens)*2e-6 + 200*10e-6 + 20000*2.5e-6 + 20000*4e-6 + 60000*0.1e-6
 					require.InDelta(t, standard*tt.multiplier, cost.TotalCost, 1e-12)
 					require.InDelta(t, standard*tt.multiplier*1.25, cost.ActualCost, 1e-12)
 				}

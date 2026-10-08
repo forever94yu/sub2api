@@ -166,6 +166,9 @@ func BuildBedrockURL(region, modelID string, stream bool) string {
 	if region == "" {
 		region = defaultBedrockRegion
 	}
+	if isBedrockMantleModelID(modelID) {
+		return fmt.Sprintf("https://bedrock-mantle.%s.api.aws/anthropic/v1/messages", region)
+	}
 	encodedModelID := url.PathEscape(modelID)
 	// url.PathEscape 不编码冒号（RFC 允许 path 中出现 ":"），
 	// 但 AWS Bedrock 期望模型 ID 中的冒号被编码为 %3A
@@ -193,6 +196,9 @@ func PrepareBedrockRequestBody(body []byte, modelID string, betaHeader string) (
 // PrepareBedrockRequestBodyWithTokens prepares a Bedrock request using pre-resolved beta tokens.
 // ccCompat 启用 CC 兼容模式时额外处理 thinking 类型转换和 tool_use.id 清理。
 func PrepareBedrockRequestBodyWithTokens(body []byte, modelID string, betaTokens []string, ccCompat bool) ([]byte, error) {
+	if isBedrockMantleModelID(modelID) {
+		return prepareBedrockMantleRequestBody(body, modelID, betaTokens)
+	}
 	var err error
 
 	betaTokens = filterBedrockBetaTokens(betaTokens)
@@ -264,6 +270,9 @@ func PrepareBedrockRequestBodyWithTokens(body []byte, modelID string, betaTokens
 // ResolveBedrockBetaTokens computes the final Bedrock beta token list before policy filtering.
 func ResolveBedrockBetaTokens(betaHeader string, body []byte, modelID string) []string {
 	betaTokens := parseAnthropicBetaHeader(betaHeader)
+	if isBedrockMantleModelID(modelID) {
+		return filterBetaTokens(betaTokens, defaultDroppedBetasSet)
+	}
 	betaTokens = autoInjectBedrockBetaTokens(betaTokens, body, modelID)
 	return filterBedrockBetaTokens(betaTokens)
 }

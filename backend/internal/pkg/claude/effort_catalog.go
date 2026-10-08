@@ -34,6 +34,9 @@ var effortFamilies = []struct {
 // Claude model, ordered from the lightest to the deepest reasoning level.
 func EffortLevelsForModel(model string) []string {
 	id := normalizeEffortModelID(model)
+	if id == "claude-haiku-5-5" {
+		return append([]string(nil), effortLowMediumHighXHighMax...)
+	}
 	for _, entry := range effortFamilies {
 		if id == entry.family || strings.HasPrefix(id, entry.family+"-") {
 			return append([]string(nil), entry.levels...)
@@ -52,10 +55,15 @@ func IsSonnet55(model string) bool {
 	return normalizeEffortModelID(model) == "claude-sonnet-5-5"
 }
 
+// IsHaiku55 matches the fixed Haiku 5.5 version, including known provider wrappers.
+func IsHaiku55(model string) bool {
+	return normalizeEffortModelID(model) == "claude-haiku-5-5"
+}
+
 // HasAdaptiveThinkingDefault identifies models whose signed thinking must be
 // preserved even when the request omits its thinking configuration.
 func HasAdaptiveThinkingDefault(model string) bool {
-	return IsOpus55(model) || IsSonnet55(model)
+	return IsOpus55(model) || IsSonnet55(model) || IsHaiku55(model)
 }
 
 func normalizeEffortModelID(model string) string {

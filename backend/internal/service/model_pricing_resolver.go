@@ -253,6 +253,7 @@ func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricin
 		cloned := *resolved.BasePricing
 		resolved.BasePricing = &cloned
 	}
+	clearRequiredPromptPricingForOverride(resolved.BasePricing, chPricing)
 
 	if chPricing.InputPrice != nil {
 		resolved.BasePricing.InputPricePerToken = *chPricing.InputPrice

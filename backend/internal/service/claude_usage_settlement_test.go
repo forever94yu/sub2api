@@ -32,7 +32,7 @@ func TestClaudeSettlementRoundsEveryBillingSink(t *testing.T) {
 		{"exact half", 0.000078125, 0.00007813},
 		{"rounds to zero", 0.000000002, 0},
 	} {
-		for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini} {
+		for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGrok, PlatformGemini} {
 			for _, legacy := range []bool{false, true} {
 				for _, subscription := range []bool{false, true} {
 					name := amount.name + "/" + platform
@@ -76,7 +76,7 @@ func TestClaudeSettlementRoundsEveryBillingSink(t *testing.T) {
 						require.True(t, applied)
 						require.Equal(t, originalCost, *p.Cost, "the original amount must remain available for retry fingerprints")
 						want := amount.raw
-						if platform == PlatformAnthropic || platform == PlatformOpenAI {
+						if platform == PlatformAnthropic || platform == PlatformOpenAI || platform == PlatformGrok {
 							want = amount.want
 						}
 						require.Equal(t, want, log.ActualCost)
@@ -128,10 +128,10 @@ func TestClaudeSettlementRecordUsageStoresDebit(t *testing.T) {
 			billingFailure  bool
 			logWriteFailure bool
 		}{
-			{name: "double rounding boundary", read: 242, write: 1, rate: 0.3333, want: 0.00001696},
+			{name: "double rounding boundary", read: 484, write: 1, rate: 0.3333, want: 0.00001696},
 			{name: "free after rounding", read: 1, rate: 0.01},
-			{name: "billing failure", read: 242, write: 1, rate: 0.3333, billingFailure: true},
-			{name: "log write failure retains debit", read: 242, write: 1, rate: 0.3333, want: 0.00001696, logWriteFailure: true},
+			{name: "billing failure", read: 484, write: 1, rate: 0.3333, billingFailure: true},
+			{name: "log write failure retains debit", read: 484, write: 1, rate: 0.3333, want: 0.00001696, logWriteFailure: true},
 		} {
 			name := tt.name
 			if longContext {
@@ -174,7 +174,7 @@ func TestClaudeSettlementRecordUsageStoresDebit(t *testing.T) {
 				require.Equal(t, 1, usageRepo.calls, "zero debit still retains token usage")
 				require.Equal(t, tt.read, usageRepo.lastLog.CacheReadTokens)
 				require.Equal(t, tt.want, usageRepo.lastLog.ActualCost)
-				if tt.read == 242 {
+				if tt.read == 484 {
 					require.Equal(t, "0.0000509000", decimal.NewFromFloat(usageRepo.lastLog.TotalCost).StringFixed(10))
 					require.Equal(t, "0.0000484000", decimal.NewFromFloat(usageRepo.lastLog.CacheReadCost).StringFixed(10))
 					require.Equal(t, "0.0000025000", decimal.NewFromFloat(usageRepo.lastLog.CacheCreationCost).StringFixed(10))

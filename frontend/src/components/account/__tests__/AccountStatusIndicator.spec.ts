@@ -51,14 +51,17 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
-  it('shows a compact Sonnet 5.5 label for model rate limits', () => {
+  it.each([
+    ['claude-sonnet-5-5', 'CSon55'],
+    ['claude-haiku-5-5', 'CHaiku55']
+  ])('shows a compact %s label for model rate limits', (model, label) => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {
         account: makeAccount({
           platform: 'claude',
           extra: {
             model_rate_limits: {
-              'claude-sonnet-5-5': {
+              [model]: {
                 rate_limited_at: '2026-09-29T00:00:00Z',
                 rate_limit_reset_at: '2099-09-29T00:00:00Z'
               }
@@ -69,8 +72,8 @@ describe('AccountStatusIndicator', () => {
       global: { stubs: { Icon: true } }
     })
 
-    expect(wrapper.text()).toContain('CSon55')
-    expect(wrapper.text()).not.toContain('claude-sonnet-5-5')
+    expect(wrapper.text()).toContain(label)
+    expect(wrapper.text()).not.toContain(model)
   })
 
   it('Claude 5 模型限流时显示 Opus 和 Sonnet 的短别名', () => {
