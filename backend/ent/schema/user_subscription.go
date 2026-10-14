@@ -46,6 +46,11 @@ func (UserSubscription) Fields() []ent.Field {
 			MaxLen(20).
 			Default(domain.SubscriptionStatusActive),
 
+		// 5 小时窗口为会话式窗口：窗口结束后的首次请求开启新窗口。
+		field.Time("five_hour_window_start").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 		field.Time("daily_window_start").
 			Optional().
 			Nillable().
@@ -59,6 +64,9 @@ func (UserSubscription) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 
+		field.Float("five_hour_usage_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
+			Default(0),
 		field.Float("daily_usage_usd").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}).
 			Default(0),

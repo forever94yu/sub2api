@@ -166,13 +166,16 @@ func (s *BillingCacheSuite) TestSubscriptionCache() {
 				groupID := int64(22)
 				subKey := fmt.Sprintf("%s%d:%d", billingSubKeyPrefix, userID, groupID)
 
+				fiveHourStart := time.Unix(time.Now().Add(-time.Hour).Unix(), 0)
 				data := &service.SubscriptionCacheData{
-					Status:       "active",
-					ExpiresAt:    time.Now().Add(1 * time.Hour),
-					DailyUsage:   1.0,
-					WeeklyUsage:  2.0,
-					MonthlyUsage: 3.0,
-					Version:      7,
+					Status:              "active",
+					ExpiresAt:           time.Now().Add(1 * time.Hour),
+					FiveHourWindowStart: &fiveHourStart,
+					FiveHourUsage:       0.5,
+					DailyUsage:          1.0,
+					WeeklyUsage:         2.0,
+					MonthlyUsage:        3.0,
+					Version:             7,
 				}
 				require.NoError(s.T(), cache.SetSubscriptionCache(ctx, userID, groupID, data), "SetSubscriptionCache")
 
@@ -181,6 +184,9 @@ func (s *BillingCacheSuite) TestSubscriptionCache() {
 				require.Equal(s.T(), "active", gotSub.Status)
 				require.Equal(s.T(), int64(7), gotSub.Version)
 				require.Equal(s.T(), 1.0, gotSub.DailyUsage)
+				require.Equal(s.T(), 0.5, gotSub.FiveHourUsage)
+				require.NotNil(s.T(), gotSub.FiveHourWindowStart)
+				require.True(s.T(), fiveHourStart.Equal(*gotSub.FiveHourWindowStart))
 
 				ttl, err := rdb.TTL(ctx, subKey).Result()
 				require.NoError(s.T(), err, "TTL subKey")
@@ -207,6 +213,16 @@ func (s *BillingCacheSuite) TestSubscriptionCache() {
 
 				gotSub, err := cache.GetSubscriptionCache(ctx, userID, groupID)
 				require.NoError(s.T(), err, "GetSubscriptionCache after update")
+				require.Zero(s.T(), gotSub.FiveHourUsage, "5-hour usage only accrues inside an open window")
+				require.Nil(s.T(), gotSub.FiveHourWindowStart)
+
+				fiveHourStart := time.Now()
+				data.FiveHourWindowStart = &fiveHourStart
+				require.NoError(s.T(), cache.SetSubscriptionCache(ctx, userID, groupID, data), "SetSubscriptionCache with 5-hour window")
+				require.NoError(s.T(), cache.UpdateSubscriptionUsage(ctx, userID, groupID, 0.5), "UpdateSubscriptionUsage in window")
+				gotSub, err = cache.GetSubscriptionCache(ctx, userID, groupID)
+				require.NoError(s.T(), err, "GetSubscriptionCache after in-window update")
+				require.Equal(s.T(), 0.5, gotSub.FiveHourUsage)
 				require.Equal(s.T(), 1.5, gotSub.DailyUsage)
 				require.Equal(s.T(), 2.5, gotSub.WeeklyUsage)
 				require.Equal(s.T(), 3.5, gotSub.MonthlyUsage)

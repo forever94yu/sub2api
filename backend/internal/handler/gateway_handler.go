@@ -1659,14 +1659,17 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 			remaining := h.calculateSubscriptionRemaining(apiKey.Group, subscription)
 			resp["remaining"] = remaining
 			resp["subscription"] = gin.H{
-				"daily_usage_usd":     subscription.DailyUsageUSD,
-				"weekly_usage_usd":    subscription.WeeklyUsageUSD,
-				"monthly_usage_usd":   subscription.MonthlyUsageUSD,
-				"daily_limit_usd":     apiKey.Group.DailyLimitUSD,
-				"weekly_limit_usd":    apiKey.Group.WeeklyLimitUSD,
-				"monthly_limit_usd":   apiKey.Group.MonthlyLimitUSD,
-				"weekly_window_start": subscription.WeeklyWindowStart,
-				"expires_at":          subscription.ExpiresAt,
+				"five_hour_usage_usd":    subscription.FiveHourUsageUSD,
+				"five_hour_limit_usd":    apiKey.Group.FiveHourLimitUSD,
+				"five_hour_window_start": subscription.FiveHourWindowStart,
+				"daily_usage_usd":        subscription.DailyUsageUSD,
+				"weekly_usage_usd":       subscription.WeeklyUsageUSD,
+				"monthly_usage_usd":      subscription.MonthlyUsageUSD,
+				"daily_limit_usd":        apiKey.Group.DailyLimitUSD,
+				"weekly_limit_usd":       apiKey.Group.WeeklyLimitUSD,
+				"monthly_limit_usd":      apiKey.Group.MonthlyLimitUSD,
+				"weekly_window_start":    subscription.WeeklyWindowStart,
+				"expires_at":             subscription.ExpiresAt,
 			}
 		}
 
@@ -1712,10 +1715,19 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 
 // calculateSubscriptionRemaining 计算订阅剩余可用额度
 // 逻辑：
-// 1. 如果日/周/月任一限额达到100%，返回0
+// 1. 如果 5 小时/日/周/月任一限额达到100%，返回0
 // 2. 否则返回所有已配置周期中剩余额度的最小值
 func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, sub *service.UserSubscription) float64 {
 	var remainingValues []float64
+
+	// 检查 5 小时限额
+	if group.HasFiveHourLimit() {
+		remaining := *group.FiveHourLimitUSD - sub.FiveHourUsageUSD
+		if remaining <= 0 {
+			return 0
+		}
+		remainingValues = append(remainingValues, remaining)
+	}
 
 	// 检查日限额
 	if group.HasDailyLimit() {

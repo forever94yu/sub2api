@@ -178,12 +178,28 @@
               >
                 <div
                   v-if="
+                    row.five_hour_limit_usd ||
                     row.daily_limit_usd ||
                     row.weekly_limit_usd ||
                     row.monthly_limit_usd
                   "
                   class="flex flex-wrap items-center gap-x-1 gap-y-0.5"
                 >
+                  <span v-if="row.five_hour_limit_usd" class="whitespace-nowrap"
+                    >{{ formatUsd(row.five_hour_limit_usd) }}/{{
+                      t("admin.groups.limitFiveHour")
+                    }}</span
+                  >
+                  <span
+                    v-if="
+                      row.five_hour_limit_usd &&
+                      (row.daily_limit_usd ||
+                        row.weekly_limit_usd ||
+                        row.monthly_limit_usd)
+                    "
+                    class="mx-1 text-gray-300 dark:text-gray-600"
+                    >·</span
+                  >
                   <span v-if="row.daily_limit_usd" class="whitespace-nowrap">
                     <span
                       v-if="usageLoading"
@@ -722,6 +738,22 @@
             v-if="createForm.subscription_type === 'subscription'"
             class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800"
           >
+            <div>
+              <label class="input-label">{{
+                t("admin.groups.subscription.fiveHourLimit")
+              }}</label>
+              <input
+                v-model.number="createForm.five_hour_limit_usd"
+                type="number"
+                step="0.01"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.subscription.noLimit')"
+              />
+              <p class="input-hint">
+                {{ t("admin.groups.subscription.fiveHourLimitHint") }}
+              </p>
+            </div>
             <div>
               <label class="input-label">{{
                 t("admin.groups.subscription.dailyLimit")
@@ -2448,6 +2480,22 @@
             v-if="editForm.subscription_type === 'subscription'"
             class="space-y-4 border-l-2 border-primary-200 pl-4 dark:border-primary-800"
           >
+            <div>
+              <label class="input-label">{{
+                t("admin.groups.subscription.fiveHourLimit")
+              }}</label>
+              <input
+                v-model.number="editForm.five_hour_limit_usd"
+                type="number"
+                step="0.01"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.subscription.noLimit')"
+              />
+              <p class="input-hint">
+                {{ t("admin.groups.subscription.fiveHourLimitHint") }}
+              </p>
+            </div>
             <div>
               <label class="input-label">{{
                 t("admin.groups.subscription.dailyLimit")
@@ -5031,6 +5079,7 @@ const createForm = reactive({
   rate_multiplier: 1.0,
   is_exclusive: false,
   subscription_type: "standard" as SubscriptionType,
+  five_hour_limit_usd: null as number | null,
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
@@ -5392,6 +5441,7 @@ const editForm = reactive({
   is_exclusive: false,
   status: "active" as "active" | "inactive",
   subscription_type: "standard" as SubscriptionType,
+  five_hour_limit_usd: null as number | null,
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
@@ -5851,6 +5901,7 @@ const closeCreateModal = () => {
   createForm.rate_multiplier = 1.0;
   createForm.is_exclusive = false;
   createForm.subscription_type = "standard";
+  createForm.five_hour_limit_usd = null;
   createForm.daily_limit_usd = null;
   createForm.weekly_limit_usd = null;
   createForm.monthly_limit_usd = null;
@@ -5974,6 +6025,9 @@ const handleCreateGroup = async () => {
         createForm.model_pricing,
         createForm.platform,
       ),
+      five_hour_limit_usd: normalizeOptionalLimit(
+        createForm.five_hour_limit_usd as number | string | null,
+      ),
       daily_limit_usd: normalizeOptionalLimit(
         createForm.daily_limit_usd as number | string | null,
       ),
@@ -6020,6 +6074,7 @@ const handleCreateGroup = async () => {
     delete (requestData as Record<string, unknown>).profit_safety_buffer_percent;
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
+    requestData.five_hour_limit_usd = emptyToNull(requestData.five_hour_limit_usd);
     requestData.daily_limit_usd = emptyToNull(requestData.daily_limit_usd);
     requestData.weekly_limit_usd = emptyToNull(requestData.weekly_limit_usd);
     requestData.monthly_limit_usd = emptyToNull(requestData.monthly_limit_usd);
@@ -6093,6 +6148,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.is_exclusive = group.is_exclusive;
   editForm.status = group.status;
   editForm.subscription_type = group.subscription_type || "standard";
+  editForm.five_hour_limit_usd = group.five_hour_limit_usd ?? null;
   editForm.daily_limit_usd = group.daily_limit_usd;
   editForm.weekly_limit_usd = group.weekly_limit_usd;
   editForm.monthly_limit_usd = group.monthly_limit_usd;
@@ -6241,6 +6297,9 @@ const handleUpdateGroup = async () => {
         editForm.model_pricing,
         editForm.platform,
       ),
+      five_hour_limit_usd: normalizeOptionalLimit(
+        editForm.five_hour_limit_usd as number | string | null,
+      ),
       daily_limit_usd: normalizeOptionalLimit(
         editForm.daily_limit_usd as number | string | null,
       ),
@@ -6293,6 +6352,7 @@ const handleUpdateGroup = async () => {
     delete (payload as Record<string, unknown>).profit_safety_buffer_percent;
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
+    payload.five_hour_limit_usd = emptyToNull(payload.five_hour_limit_usd);
     payload.daily_limit_usd = emptyToNull(payload.daily_limit_usd);
     payload.weekly_limit_usd = emptyToNull(payload.weekly_limit_usd);
     payload.monthly_limit_usd = emptyToNull(payload.monthly_limit_usd);

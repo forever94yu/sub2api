@@ -320,6 +320,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	// 限额字段：nil/负数 表示"无限制"，0 表示"不允许用量"，正数表示具体限额
+	fiveHourLimit := normalizeLimit(input.FiveHourLimitUSD)
 	dailyLimit := normalizeLimit(input.DailyLimitUSD)
 	weeklyLimit := normalizeLimit(input.WeeklyLimitUSD)
 	monthlyLimit := normalizeLimit(input.MonthlyLimitUSD)
@@ -460,6 +461,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
 		SubscriptionType:                subscriptionType,
+		FiveHourLimitUSD:                fiveHourLimit,
 		DailyLimitUSD:                   dailyLimit,
 		WeeklyLimitUSD:                  weeklyLimit,
 		MonthlyLimitUSD:                 monthlyLimit,
@@ -682,6 +684,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	// 限额字段：缺失时保留，显式 null/负数表示"无限制"，0 表示"不允许用量"。
 	// 指针非 nil 的兼容分支保留了服务层直接调用者的原有行为。
+	if input.FiveHourLimitUSDSet || input.FiveHourLimitUSD != nil {
+		group.FiveHourLimitUSD = normalizeLimit(input.FiveHourLimitUSD)
+	}
 	if input.DailyLimitUSDSet || input.DailyLimitUSD != nil {
 		group.DailyLimitUSD = normalizeLimit(input.DailyLimitUSD)
 	}

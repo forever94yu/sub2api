@@ -636,6 +636,7 @@ const ringItems = computed<RingItem[]>(() => {
     if (data.subscription) {
       const sub = data.subscription
       const limits = [
+        { label: t('keyUsage.limit5h'), usage: sub.five_hour_usage_usd ?? 0, limit: sub.five_hour_limit_usd },
         { label: t('keyUsage.limitDaily'), usage: sub.daily_usage_usd, limit: sub.daily_limit_usd },
         { label: t('keyUsage.limitWeekly'), usage: sub.weekly_usage_usd, limit: sub.weekly_limit_usd },
         { label: t('keyUsage.limitMonthly'), usage: sub.monthly_usage_usd, limit: sub.monthly_limit_usd },
@@ -733,6 +734,14 @@ const detailRows = computed<DetailRow[]>(() => {
 
     if (data.subscription) {
       const sub = data.subscription
+      if (sub.five_hour_limit_usd > 0) {
+        const fiveHourUsage = sub.five_hour_usage_usd ?? 0
+        const pct = (fiveHourUsage / sub.five_hour_limit_usd) * 100
+        rows.push({
+          iconBg: 'bg-amber-500/10', iconColor: 'text-amber-500', iconSvg: ICON_DOLLAR,
+          label: `${t('keyUsage.usedQuota')} (5H)`, value: `${usd(fiveHourUsage)} / ${usd(sub.five_hour_limit_usd)}`, valueClass: getUsageColor(pct),
+        })
+      }
       if (sub.daily_limit_usd > 0) {
         const pct = (sub.daily_usage_usd / sub.daily_limit_usd) * 100
         rows.push({

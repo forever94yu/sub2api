@@ -97,7 +97,7 @@ func (s *BillingCacheService) CheckWebSocketBillingEligibility(ctx context.Conte
 		maintenance := &SubscriptionService{userSubRepo: s.subRepo, billingCacheService: s, now: time.Now}
 		needsMaintenance, err := maintenance.ValidateAndCheckLimits(subscription, key.Group)
 		if needsMaintenance {
-			subscription, err = maintenance.EnsureWindowMaintenance(ctx, subscription)
+			subscription, err = maintenance.EnsureWindowMaintenance(ctx, subscription, key.Group)
 			if err != nil {
 				return nil, err
 			}
@@ -111,6 +111,9 @@ func (s *BillingCacheService) CheckWebSocketBillingEligibility(ctx context.Conte
 		}
 		// ValidateAndCheckLimits accepts usage == limit for quota updates;
 		// admitting another billable request requires remaining headroom.
+		if key.Group.HasFiveHourLimit() && subscription.FiveHourUsageUSD >= *key.Group.FiveHourLimitUSD {
+			return nil, ErrFiveHourLimitExceeded
+		}
 		if key.Group.HasDailyLimit() && subscription.DailyUsageUSD >= *key.Group.DailyLimitUSD {
 			return nil, ErrDailyLimitExceeded
 		}

@@ -50,12 +50,14 @@ func billingSubKey(userID, groupID int64) string {
 }
 
 const (
-	subFieldStatus       = "status"
-	subFieldExpiresAt    = "expires_at"
-	subFieldDailyUsage   = "daily_usage"
-	subFieldWeeklyUsage  = "weekly_usage"
-	subFieldMonthlyUsage = "monthly_usage"
-	subFieldVersion      = "version"
+	subFieldStatus        = "status"
+	subFieldExpiresAt     = "expires_at"
+	subFieldFiveHourStart = "five_hour_window_start"
+	subFieldFiveHourUsage = "five_hour_usage"
+	subFieldDailyUsage    = "daily_usage"
+	subFieldWeeklyUsage   = "weekly_usage"
+	subFieldMonthlyUsage  = "monthly_usage"
+	subFieldVersion       = "version"
 )
 
 // billingRateLimitKey generates the Redis key for API key rate limit cache.
@@ -90,6 +92,10 @@ var (
 			return 0
 		end
 		local cost = tonumber(ARGV[1])
+		local fiveHourStart = tonumber(redis.call('HGET', KEYS[1], 'five_hour_window_start') or '0')
+		if fiveHourStart and fiveHourStart > 0 then
+			redis.call('HINCRBYFLOAT', KEYS[1], 'five_hour_usage', cost)
+		end
 		redis.call('HINCRBYFLOAT', KEYS[1], 'daily_usage', cost)
 		redis.call('HINCRBYFLOAT', KEYS[1], 'weekly_usage', cost)
 		redis.call('HINCRBYFLOAT', KEYS[1], 'monthly_usage', cost)
@@ -200,6 +206,17 @@ func (c *billingCache) parseSubscriptionCache(data map[string]string) (*service.
 		}
 	}
 
+	if startStr := data[subFieldFiveHourStart]; startStr != "" {
+		if start, err := strconv.ParseInt(startStr, 10, 64); err == nil && start > 0 {
+			t := time.Unix(start, 0)
+			result.FiveHourWindowStart = &t
+		}
+	}
+
+	if fiveHourStr, ok := data[subFieldFiveHourUsage]; ok {
+		result.FiveHourUsage, _ = strconv.ParseFloat(fiveHourStr, 64)
+	}
+
 	if dailyStr, ok := data[subFieldDailyUsage]; ok {
 		result.DailyUsage, _ = strconv.ParseFloat(dailyStr, 64)
 	}
@@ -226,13 +243,19 @@ func (c *billingCache) SetSubscriptionCache(ctx context.Context, userID, groupID
 
 	key := billingSubKey(userID, groupID)
 
+	var fiveHourStart int64
+	if data.FiveHourWindowStart != nil {
+		fiveHourStart = data.FiveHourWindowStart.Unix()
+	}
 	fields := map[string]any{
-		subFieldStatus:       data.Status,
-		subFieldExpiresAt:    data.ExpiresAt.Unix(),
-		subFieldDailyUsage:   data.DailyUsage,
-		subFieldWeeklyUsage:  data.WeeklyUsage,
-		subFieldMonthlyUsage: data.MonthlyUsage,
-		subFieldVersion:      data.Version,
+		subFieldStatus:        data.Status,
+		subFieldExpiresAt:     data.ExpiresAt.Unix(),
+		subFieldFiveHourStart: fiveHourStart,
+		subFieldFiveHourUsage: data.FiveHourUsage,
+		subFieldDailyUsage:    data.DailyUsage,
+		subFieldWeeklyUsage:   data.WeeklyUsage,
+		subFieldMonthlyUsage:  data.MonthlyUsage,
+		subFieldVersion:       data.Version,
 	}
 
 	pipe := c.rdb.Pipeline()

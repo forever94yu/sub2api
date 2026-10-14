@@ -428,9 +428,68 @@ func (s *UserSubscriptionRepoSuite) TestIncrementUsage() {
 
 	got, err := s.repo.GetByID(s.ctx, sub.ID)
 	s.Require().NoError(err)
+	s.Require().Zero(got.FiveHourUsageUSD, "5-hour usage only accrues inside an open window")
 	s.Require().InDelta(1.25, got.DailyUsageUSD, 1e-6)
 	s.Require().InDelta(1.25, got.WeeklyUsageUSD, 1e-6)
 	s.Require().InDelta(1.25, got.MonthlyUsageUSD, 1e-6)
+}
+
+func (s *UserSubscriptionRepoSuite) TestResetFiveHourUsage_OpensWindowOnceUnderConcurrency() {
+	user := s.mustCreateUser("reset5h-cas@test.com", service.RoleUser)
+	group := s.mustCreateGroup("g-reset5h-cas")
+	oldWindowStart := time.Date(2025, 1, 1, 8, 0, 0, 0, time.UTC)
+	sub := s.mustCreateSubscription(user.ID, group.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetFiveHourWindowStart(oldWindowStart)
+		c.SetFiveHourUsageUsd(12)
+		c.SetDailyUsageUsd(12)
+	})
+
+	newWindowStart := oldWindowStart.Add(6 * time.Hour)
+	s.Require().NoError(s.repo.ResetFiveHourUsage(s.ctx, sub.ID, &oldWindowStart, newWindowStart))
+	s.Require().NoError(s.repo.IncrementUsage(s.ctx, sub.ID, 2))
+	// A stale request carrying the old snapshot must not wipe the new window.
+	s.Require().NoError(s.repo.ResetFiveHourUsage(s.ctx, sub.ID, &oldWindowStart, newWindowStart.Add(time.Minute)))
+
+	got, err := s.repo.GetByID(s.ctx, sub.ID)
+	s.Require().NoError(err)
+	s.Require().InDelta(2, got.FiveHourUsageUSD, 1e-6)
+	s.Require().InDelta(14, got.DailyUsageUSD, 1e-6)
+	s.Require().WithinDuration(newWindowStart, *got.FiveHourWindowStart, time.Microsecond)
+}
+
+func (s *UserSubscriptionRepoSuite) TestResetFiveHourUsage_FromUnopenedWindow() {
+	user := s.mustCreateUser("reset5h-nil@test.com", service.RoleUser)
+	group := s.mustCreateGroup("g-reset5h-nil")
+	sub := s.mustCreateSubscription(user.ID, group.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetFiveHourUsageUsd(4)
+	})
+
+	openedAt := time.Date(2025, 1, 1, 10, 30, 0, 0, time.UTC)
+	s.Require().NoError(s.repo.ResetFiveHourUsage(s.ctx, sub.ID, nil, openedAt))
+
+	got, err := s.repo.GetByID(s.ctx, sub.ID)
+	s.Require().NoError(err)
+	s.Require().Zero(got.FiveHourUsageUSD)
+	s.Require().WithinDuration(openedAt, *got.FiveHourWindowStart, time.Microsecond)
+}
+
+func (s *UserSubscriptionRepoSuite) TestResetUsageWindows_FiveHourClearsWindowOnly() {
+	user := s.mustCreateUser("admin-reset5h@test.com", service.RoleUser)
+	group := s.mustCreateGroup("g-admin-reset5h")
+	windowStart := time.Date(2025, 1, 1, 8, 0, 0, 0, time.UTC)
+	sub := s.mustCreateSubscription(user.ID, group.ID, func(c *dbent.UserSubscriptionCreate) {
+		c.SetFiveHourWindowStart(windowStart)
+		c.SetFiveHourUsageUsd(5)
+		c.SetDailyUsageUsd(5)
+	})
+
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, false, false, windowStart, windowStart))
+
+	got, err := s.repo.GetByID(s.ctx, sub.ID)
+	s.Require().NoError(err)
+	s.Require().Zero(got.FiveHourUsageUSD)
+	s.Require().Nil(got.FiveHourWindowStart)
+	s.Require().InDelta(5, got.DailyUsageUSD, 1e-6)
 }
 
 func (s *UserSubscriptionRepoSuite) TestIncrementUsage_Accumulates() {
@@ -475,7 +534,7 @@ func (s *UserSubscriptionRepoSuite) TestActivateWindows_StaleActivationPreserves
 	manualDailyStart := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	s.Require().NoError(s.repo.ActivateWindows(s.ctx, sub.ID, activatedAt, activatedAt))
-	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, true, true, manualDailyStart, manualResetAt))
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, false, true, true, true, manualDailyStart, manualResetAt))
 	// Simulate a concurrent request carrying the original unactivated snapshot.
 	s.Require().NoError(s.repo.ActivateWindows(s.ctx, sub.ID, activatedAt.Add(time.Hour), activatedAt.Add(time.Hour)))
 
@@ -539,7 +598,7 @@ func (s *UserSubscriptionRepoSuite) TestResetUsageWindows_ClearsUsageAfterAutoma
 	newWindowStart := oldWindowStart.Add(24 * time.Hour)
 	s.Require().NoError(s.repo.ResetDailyUsage(s.ctx, sub.ID, &oldWindowStart, newWindowStart))
 	s.Require().NoError(s.repo.IncrementUsage(s.ctx, sub.ID, 3))
-	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, true, false, false, newWindowStart, newWindowStart))
+	s.Require().NoError(s.repo.ResetUsageWindows(s.ctx, sub.ID, false, true, false, false, newWindowStart, newWindowStart))
 
 	got, err := s.repo.GetByID(s.ctx, sub.ID)
 	s.Require().NoError(err)

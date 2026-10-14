@@ -93,7 +93,11 @@ func (r *subscriptionExpiryRepoStub) ActivateWindows(context.Context, int64, tim
 	return nil
 }
 
-func (r *subscriptionExpiryRepoStub) ResetUsageWindows(context.Context, int64, bool, bool, bool, time.Time, time.Time) error {
+func (r *subscriptionExpiryRepoStub) ResetUsageWindows(context.Context, int64, bool, bool, bool, bool, time.Time, time.Time) error {
+	return nil
+}
+
+func (r *subscriptionExpiryRepoStub) ResetFiveHourUsage(context.Context, int64, *time.Time, time.Time) error {
 	return nil
 }
 

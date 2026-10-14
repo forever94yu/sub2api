@@ -33,9 +33,12 @@ type UserSubscriptionRepository interface {
 	// （dailyStart）；周/月窗口为期限对齐滚动窗口，锚点为激活时刻（periodicStart）。
 	// 仅当三个窗口均未激活时生效。
 	ActivateWindows(ctx context.Context, id int64, dailyStart, periodicStart time.Time) error
-	// ResetUsageWindows 手动重置所选窗口的用量。日窗口锚点写入 dailyStart（当天 0 点，
-	// 保持 0 点刷新节奏不漂移）；周/月窗口锚点写入 periodicStart（重置时刻）。
-	ResetUsageWindows(ctx context.Context, id int64, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart time.Time) error
+	// ResetUsageWindows 手动重置所选窗口的用量。5 小时窗口清空起点，由下一次请求重新开启；
+	// 日窗口锚点写入 dailyStart（当天 0 点，保持 0 点刷新节奏不漂移）；周/月窗口锚点写入
+	// periodicStart（重置时刻）。
+	ResetUsageWindows(ctx context.Context, id int64, resetFiveHour, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart time.Time) error
+	// ResetFiveHourUsage 条件开启新的 5 小时窗口：仅当当前起点仍为 expectedWindowStart 时生效。
+	ResetFiveHourUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
 	ResetDailyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
 	ResetWeeklyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
 	ResetMonthlyUsage(ctx context.Context, id int64, expectedWindowStart *time.Time, newWindowStart time.Time) error

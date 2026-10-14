@@ -51,6 +51,27 @@ func TestUpdateGroupExplicitNullClearsUsageLimit(t *testing.T) {
 	require.Nil(t, repo.group.DailyLimitUSD)
 }
 
+func TestUpdateGroupFiveHourLimitPatchSemantics(t *testing.T) {
+	fiveHour := 5.0
+	repo := &groupPatchRepoStub{group: &Group{
+		ID: 1, Platform: PlatformAnthropic, Status: StatusActive, FiveHourLimitUSD: &fiveHour,
+	}}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	_, err := svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{Status: "inactive"})
+	require.NoError(t, err)
+	require.Equal(t, fiveHour, *repo.group.FiveHourLimitUSD)
+
+	updated := 8.0
+	_, err = svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{FiveHourLimitUSD: &updated, FiveHourLimitUSDSet: true})
+	require.NoError(t, err)
+	require.Equal(t, updated, *repo.group.FiveHourLimitUSD)
+
+	_, err = svc.UpdateGroup(context.Background(), 1, &UpdateGroupInput{FiveHourLimitUSDSet: true})
+	require.NoError(t, err)
+	require.Nil(t, repo.group.FiveHourLimitUSD)
+}
+
 type proxyPatchRepoStub struct {
 	ProxyRepository
 	proxy *Proxy

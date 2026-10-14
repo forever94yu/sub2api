@@ -68,6 +68,31 @@ func (s *GroupRepoSuite) TestCreate() {
 	s.Require().Equal("test-create", got.Name)
 }
 
+func (s *GroupRepoSuite) TestFiveHourLimitRoundTripAndClear() {
+	limit := 12.5
+	group := &service.Group{
+		Name:             "test-five-hour-limit",
+		Platform:         service.PlatformAnthropic,
+		RateMultiplier:   1.0,
+		Status:           service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeSubscription,
+		FiveHourLimitUSD: &limit,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+
+	got, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(got.FiveHourLimitUSD)
+	s.Require().InDelta(12.5, *got.FiveHourLimitUSD, 1e-9)
+
+	got.FiveHourLimitUSD = nil
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+
+	cleared, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Nil(cleared.FiveHourLimitUSD)
+}
+
 func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligibleAccounts() {
 	source := &service.Group{
 		Name:             "duplicate-source",

@@ -6,7 +6,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
-const subscriptionDayDuration = 24 * time.Hour
+const (
+	subscriptionDayDuration      = 24 * time.Hour
+	subscriptionFiveHourDuration = 5 * time.Hour
+)
 
 type UserSubscription struct {
 	ID      int64
@@ -17,13 +20,15 @@ type UserSubscription struct {
 	ExpiresAt time.Time
 	Status    string
 
-	DailyWindowStart   *time.Time
-	WeeklyWindowStart  *time.Time
-	MonthlyWindowStart *time.Time
+	FiveHourWindowStart *time.Time
+	DailyWindowStart    *time.Time
+	WeeklyWindowStart   *time.Time
+	MonthlyWindowStart  *time.Time
 
-	DailyUsageUSD   float64
-	WeeklyUsageUSD  float64
-	MonthlyUsageUSD float64
+	FiveHourUsageUSD float64
+	DailyUsageUSD    float64
+	WeeklyUsageUSD   float64
+	MonthlyUsageUSD  float64
 
 	AssignedBy *int64
 	AssignedAt time.Time
@@ -72,6 +77,15 @@ func (s *UserSubscription) HasOneTimeDailyQuota() bool {
 		return false
 	}
 	return !s.ExpiresAt.After(s.StartsAt.AddDate(0, 0, 1))
+}
+
+// fiveHourWindowStartAt 计算 5 小时窗口（会话式窗口）的新起点：未开启或已结束时，
+// 由本次请求时刻开启新窗口，而不是按固定步长对齐。
+func (s *UserSubscription) fiveHourWindowStartAt(now time.Time) (time.Time, bool) {
+	if s.FiveHourWindowStart != nil && now.Before(s.FiveHourWindowStart.Add(subscriptionFiveHourDuration)) {
+		return time.Time{}, false
+	}
+	return now, true
 }
 
 func (s *UserSubscription) NeedsDailyReset() bool {
@@ -167,6 +181,14 @@ func (s *UserSubscription) automaticWindowStartAt(previous *time.Time, period ti
 	return anchor.Add(periods * period), true
 }
 
+func (s *UserSubscription) FiveHourResetTime() *time.Time {
+	if s.FiveHourWindowStart == nil {
+		return nil
+	}
+	t := s.FiveHourWindowStart.Add(subscriptionFiveHourDuration)
+	return &t
+}
+
 func (s *UserSubscription) DailyResetTime() *time.Time {
 	if s.DailyWindowStart == nil {
 		return nil
@@ -194,6 +216,13 @@ func (s *UserSubscription) MonthlyResetTime() *time.Time {
 	}
 	t := s.MonthlyWindowStart.Add(30 * 24 * time.Hour)
 	return &t
+}
+
+func (s *UserSubscription) CheckFiveHourLimit(group *Group, additionalCost float64) bool {
+	if !group.HasFiveHourLimit() {
+		return true
+	}
+	return s.FiveHourUsageUSD+additionalCost <= *group.FiveHourLimitUSD
 }
 
 func (s *UserSubscription) CheckDailyLimit(group *Group, additionalCost float64) bool {

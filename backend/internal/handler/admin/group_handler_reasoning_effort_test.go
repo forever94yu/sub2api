@@ -30,3 +30,19 @@ func TestUpdateGroupRequestReasoningEffortMappingsTriState(t *testing.T) {
 		require.Equal(t, "xhigh", (*req.ReasoningEffortMappings)[0].To)
 	})
 }
+
+func TestGroupRequestFiveHourLimitBinding(t *testing.T) {
+	var create CreateGroupRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"g","five_hour_limit_usd":12.5}`), &create))
+	require.True(t, create.FiveHourLimitUSD.IsSet())
+	require.Equal(t, 12.5, *create.FiveHourLimitUSD.ToServiceInput())
+
+	var omitted UpdateGroupRequest
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &omitted))
+	require.False(t, omitted.FiveHourLimitUSD.IsSet())
+
+	var cleared UpdateGroupRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"five_hour_limit_usd":null}`), &cleared))
+	require.True(t, cleared.FiveHourLimitUSD.IsSet())
+	require.Nil(t, cleared.FiveHourLimitUSD.ToServiceInput())
+}

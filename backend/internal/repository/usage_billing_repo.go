@@ -217,6 +217,10 @@ func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscrip
 	const updateSQL = `
 		UPDATE user_subscriptions us
 		SET
+			five_hour_usage_usd = CASE
+				WHEN us.five_hour_window_start IS NULL THEN us.five_hour_usage_usd
+				ELSE us.five_hour_usage_usd + $1
+			END,
 			daily_usage_usd = us.daily_usage_usd + $1,
 			weekly_usage_usd = us.weekly_usage_usd + $1,
 			monthly_usage_usd = us.monthly_usage_usd + $1,
