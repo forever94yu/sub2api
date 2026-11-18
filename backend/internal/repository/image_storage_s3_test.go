@@ -42,3 +42,34 @@ func TestS3ImageStorageConnectionChecksBucket(t *testing.T) {
 		})
 	}
 }
+
+func TestS3ImageStorageSVGDownloadsAsAttachment(t *testing.T) {
+	for _, publicURL := range []string{"", "https://images.example.test"} {
+		for _, contentType := range []string{"image/svg+xml", "image/svg+xml; charset=utf-8", "image/png", "image/gif"} {
+			t.Run(publicURL+"/"+contentType, func(t *testing.T) {
+				dispositions := make(chan string, 1)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					require.Equal(t, http.MethodPut, r.Method)
+					dispositions <- r.Header.Get("Content-Disposition")
+					require.Equal(t, contentType, r.Header.Get("Content-Type"))
+					w.WriteHeader(http.StatusOK)
+				}))
+				defer server.Close()
+				storage, err := NewS3ImageStorage(context.Background(), &config.ImageStorageConfig{
+					Endpoint: server.URL, Region: "auto", Bucket: "images", PublicBaseURL: publicURL,
+					AccessKeyID: "test-ak", SecretAccessKey: "test-sk", ForcePathStyle: true,
+				})
+				require.NoError(t, err)
+				url, err := storage.Save(context.Background(), "image26.svg", contentType, []byte(`<svg onload="alert(1)"/>`))
+				require.NoError(t, err)
+				require.NotEmpty(t, url)
+				disposition := <-dispositions
+				if contentType == "image/png" || contentType == "image/gif" {
+					require.Empty(t, disposition, "existing raster download behavior stays unchanged")
+				} else {
+					require.Equal(t, "attachment", disposition, "SVG must not execute as a document on the storage origin")
+				}
+			})
+		}
+	}
+}

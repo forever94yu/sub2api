@@ -10,7 +10,7 @@ import (
 // explicit capabilities remain authoritative, including optional null values.
 func fillGPT6SolLunaCodexModel(model map[string]json.RawMessage, target string) bool {
 	modelID := normalizeKnownOpenAIGPT6Model(target)
-	if !isOpenAIGPT6SolLunaModel(modelID) && !isOpenAIGPT61SolModel(modelID) {
+	if !isOpenAIGPT6SolLunaModel(modelID) && !isOpenAIGPT61Or62Model(modelID) {
 		return false
 	}
 	displayName := "GPT-6 Sol"
@@ -19,6 +19,10 @@ func fillGPT6SolLunaCodexModel(model map[string]json.RawMessage, target string) 
 		displayName = "GPT-6 Luna"
 	case openAIGPT61SolModelID:
 		displayName = "GPT-6.1 Sol"
+	case openAIGPT62AstraModelID:
+		displayName = "GPT-6.2 Astra"
+	case openAIGPT62SolModelID:
+		displayName = "GPT-6.2 Sol"
 	}
 	displayJSON, _ := json.Marshal(displayName)
 	defaults := map[string]string{
@@ -37,7 +41,7 @@ func fillGPT6SolLunaCodexModel(model map[string]json.RawMessage, target string) 
 			{"effort":"max","description":"Maximum reasoning effort"}
 		]`,
 	}
-	if modelID == openAIGPT61SolModelID {
+	if isOpenAIGPT61Or62Model(modelID) {
 		defaults["supported_reasoning_levels"] = `[
 			{"effort":"low","description":"Low reasoning effort"},
 			{"effort":"medium","description":"Medium reasoning effort"},

@@ -26,6 +26,8 @@ var DefaultModels = []Model{
 	{ID: "gpt-6-sol", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Sol"},
 	{ID: "gpt-6-luna", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT-6 Luna"},
 	{ID: "gpt-6.1-sol", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.1 Sol"},
+	{ID: "gpt-6.2-astra", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.2 Astra"},
+	{ID: "gpt-6.2-sol", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT-6.2 Sol"},
 	{ID: "gpt-5.5", Object: "model", Created: 1776873600, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.5"},
 	{ID: "gpt-5.4", Object: "model", Created: 1738368000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.4"},
 	{ID: "gpt-5.4-mini", Object: "model", Created: 1738368000, OwnedBy: "openai", Type: "model", DisplayName: "GPT-5.4 Mini"},
@@ -39,6 +41,8 @@ var DefaultModels = []Model{
 	{ID: "gpt-image-2.5-sunburst-2026-09-08", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Sunburst (2026-09-08)"},
 	{ID: "gpt-image-2.5-flare", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Flare"},
 	{ID: "gpt-image-2.5-flare-2026-09-08", Object: "model", Created: 1788825600, OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.5 Flare (2026-09-08)"},
+	{ID: "gpt-image-2.6-sunburst", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.6 Sunburst"},
+	{ID: "gpt-image-2.6-flare", Object: "model", OwnedBy: "openai", Type: "model", DisplayName: "GPT Image 2.6 Flare"},
 }
 
 // DefaultModelIDs returns the default model ID list

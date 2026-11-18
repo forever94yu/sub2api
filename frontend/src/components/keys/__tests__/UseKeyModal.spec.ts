@@ -619,7 +619,11 @@ describe('UseKeyModal', () => {
     }
   })
 
-  it('exports GPT-6.1 Sol with only supported reasoning variants', async () => {
+  it.each([
+    ['gpt-6.1-sol', 'GPT-6.1 Sol'],
+    ['gpt-6.2-astra', 'GPT-6.2 Astra'],
+    ['gpt-6.2-sol', 'GPT-6.2 Sol']
+  ])('exports %s with only supported reasoning variants', async (id, name) => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -641,8 +645,8 @@ describe('UseKeyModal', () => {
     await opencodeTab!.trigger('click')
 
     const models = JSON.parse(wrapper.get('pre code').text()).provider.openai.models
-    expect(models['gpt-6.1-sol']).toEqual({
-      name: 'GPT-6.1 Sol',
+    expect(models[id]).toEqual({
+      name,
       limit: { context: 1050000, output: 128000 },
       options: { store: false },
       variants: { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }

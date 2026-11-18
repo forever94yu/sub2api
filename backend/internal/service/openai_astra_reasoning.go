@@ -22,11 +22,11 @@ func normalizeAstraReasoningEffortBody(body []byte, model string) ([]byte, bool)
 		switch effort {
 		case "ultra":
 		case "minimal":
-			if !isOpenAIGPT6SolLunaModel(model) && !isOpenAIGPT61SolModel(model) {
+			if !isOpenAIGPT6SolLunaModel(model) && !isOpenAIGPT61Or62Model(model) {
 				continue
 			}
 		case "none":
-			if !isOpenAIGPT61SolModel(model) {
+			if !isOpenAIGPT61Or62Model(model) {
 				continue
 			}
 		default:
@@ -46,7 +46,7 @@ func normalizeAstraReasoningEffortForAccount(ctx context.Context, account *Accou
 		return body
 	}
 	model := resolveOpenAIForwardModel(account, gjson.GetBytes(body, "model").String(), defaultMappedModel)
-	if isOpenAIGPT61SolModel(model) && ctx != nil {
+	if isOpenAIGPT61Or62Model(model) && ctx != nil {
 		if policy, ok := ctx.Value(openAIReasoningEffortPolicyContextKey{}).(openAIReasoningEffortPolicy); ok && policy.originalEfforts != nil {
 			// Resolve this model's minimum before applying the single group mapping.
 			updated := restoreOpenAIReasoningEffortInput(body, policy.originalEfforts)
@@ -60,14 +60,14 @@ func normalizeAstraReasoningEffortForAccount(ctx context.Context, account *Accou
 		// effort needs that policy now; reapplying it could otherwise chain maps.
 		updated, _ = ApplyOpenAIReasoningEffortPolicyFromContext(ctx, updated)
 	}
-	if isOpenAIGPT61SolModel(model) {
+	if isOpenAIGPT61Or62Model(model) {
 		updated, _ = normalizeAstraReasoningEffortBody(updated, model)
 	}
 	return normalizeOpenAIGPT6SamplingBody(updated, model)
 }
 
 func normalizeAstraReasoningEffortForWS(body []byte, model string, hooks *OpenAIWSIngressHooks, originalEfforts ...openAIReasoningEffortInput) []byte {
-	if isOpenAIGPT61SolModel(model) && len(originalEfforts) > 0 {
+	if isOpenAIGPT61Or62Model(model) && len(originalEfforts) > 0 {
 		updated := restoreOpenAIReasoningEffortInput(body, originalEfforts[0])
 		maxEffort := ""
 		var mappings []ReasoningEffortMapping
@@ -81,7 +81,7 @@ func normalizeAstraReasoningEffortForWS(body []byte, model string, hooks *OpenAI
 	if changed && hooks != nil {
 		updated, _ = ApplyOpenAIReasoningEffortPolicy(updated, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings)
 	}
-	if isOpenAIGPT61SolModel(model) {
+	if isOpenAIGPT61Or62Model(model) {
 		updated, _ = normalizeAstraReasoningEffortBody(updated, model)
 	}
 	return normalizeOpenAIGPT6SamplingBody(updated, model)

@@ -112,7 +112,7 @@ func openAICompatAnthropicReasoningEffort(req *apicompat.AnthropicRequest, upstr
 		return convertedEffort
 	}
 	effort := strings.TrimSpace(req.OutputConfig.Effort)
-	if isOpenAIGPT6SolLunaModel(upstreamModel) || isOpenAIGPT61SolModel(upstreamModel) {
+	if isOpenAIGPT6SolLunaModel(upstreamModel) || isOpenAIGPT61Or62Model(upstreamModel) {
 		if normalized := normalizeOpenAIReasoningEffortForModel(effort, upstreamModel); normalized != "" {
 			return normalized
 		}

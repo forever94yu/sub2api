@@ -101,8 +101,10 @@ func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 	}
 
 	cachedTokens := 0
+	var cacheWriteDetails *CacheWriteTokensDetails
 	if usage.InputTokensDetails != nil {
 		cachedTokens = usage.InputTokensDetails.CachedTokens
+		cacheWriteDetails = usage.InputTokensDetails.CacheWriteTokensDetails
 	}
 
 	inputTokens := usage.InputTokens - cachedTokens - usage.CacheCreationInputTokens
@@ -115,6 +117,7 @@ func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 		OutputTokens:             usage.OutputTokens,
 		CacheReadInputTokens:     cachedTokens,
 		CacheCreationInputTokens: usage.CacheCreationInputTokens,
+		CacheWriteTokensDetails:  cacheWriteDetails,
 	}
 }
 
@@ -194,6 +197,7 @@ type ResponsesEventToAnthropicState struct {
 	OutputTokens             int
 	CacheReadInputTokens     int
 	CacheCreationInputTokens int
+	CacheWriteTokensDetails  *CacheWriteTokensDetails
 
 	ResponseID string
 	Model      string
@@ -275,6 +279,7 @@ func FinalizeResponsesAnthropicStream(state *ResponsesEventToAnthropicState) []A
 				OutputTokens:             state.OutputTokens,
 				CacheReadInputTokens:     state.CacheReadInputTokens,
 				CacheCreationInputTokens: state.CacheCreationInputTokens,
+				CacheWriteTokensDetails:  state.CacheWriteTokensDetails,
 			},
 		},
 		AnthropicStreamEvent{Type: "message_stop"},
@@ -637,6 +642,7 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 		state.OutputTokens = usage.OutputTokens
 		state.CacheReadInputTokens = usage.CacheReadInputTokens
 		state.CacheCreationInputTokens = usage.CacheCreationInputTokens
+		state.CacheWriteTokensDetails = usage.CacheWriteTokensDetails
 	}
 	if evt.Response != nil {
 		if evt.Response.Usage != nil {
@@ -645,6 +651,7 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 			state.OutputTokens = usage.OutputTokens
 			state.CacheReadInputTokens = usage.CacheReadInputTokens
 			state.CacheCreationInputTokens = usage.CacheCreationInputTokens
+			state.CacheWriteTokensDetails = usage.CacheWriteTokensDetails
 		}
 		switch evt.Response.Status {
 		case "incomplete":
@@ -669,6 +676,7 @@ func resToAnthHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 				OutputTokens:             state.OutputTokens,
 				CacheReadInputTokens:     state.CacheReadInputTokens,
 				CacheCreationInputTokens: state.CacheCreationInputTokens,
+				CacheWriteTokensDetails:  state.CacheWriteTokensDetails,
 			},
 		},
 		AnthropicStreamEvent{Type: "message_stop"},

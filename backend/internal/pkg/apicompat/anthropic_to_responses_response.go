@@ -135,9 +135,10 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 		TotalTokens:              totalInputTokens + resp.Usage.OutputTokens,
 		CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
 	}
-	if resp.Usage.CacheReadInputTokens > 0 {
+	if resp.Usage.CacheReadInputTokens > 0 || resp.Usage.CacheWriteTokensDetails != nil {
 		out.Usage.InputTokensDetails = &ResponsesInputTokensDetails{
-			CachedTokens: resp.Usage.CacheReadInputTokens,
+			CachedTokens:            resp.Usage.CacheReadInputTokens,
+			CacheWriteTokensDetails: resp.Usage.CacheWriteTokensDetails,
 		}
 	}
 
@@ -208,6 +209,7 @@ type AnthropicEventToResponsesState struct {
 	OutputTokens             int
 	CacheReadInputTokens     int
 	CacheCreationInputTokens int
+	CacheWriteTokensDetails  *CacheWriteTokensDetails
 
 	StopReason string
 }
@@ -287,6 +289,7 @@ func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEven
 		}
 		if evt.Message.Usage.CacheCreationInputTokens > 0 {
 			state.CacheCreationInputTokens = evt.Message.Usage.CacheCreationInputTokens
+			state.CacheWriteTokensDetails = evt.Message.Usage.CacheWriteTokensDetails
 		}
 	}
 
@@ -527,6 +530,7 @@ func anthToResHandleMessageDelta(evt *AnthropicStreamEvent, state *AnthropicEven
 		}
 		if evt.Usage.CacheCreationInputTokens > 0 {
 			state.CacheCreationInputTokens = evt.Usage.CacheCreationInputTokens
+			state.CacheWriteTokensDetails = evt.Usage.CacheWriteTokensDetails
 		}
 	}
 	if evt.Delta != nil && evt.Delta.StopReason != "" {
@@ -647,9 +651,10 @@ func makeResponsesCompletedEvent(
 		TotalTokens:              totalInputTokens + state.OutputTokens,
 		CacheCreationInputTokens: state.CacheCreationInputTokens,
 	}
-	if state.CacheReadInputTokens > 0 {
+	if state.CacheReadInputTokens > 0 || state.CacheWriteTokensDetails != nil {
 		usage.InputTokensDetails = &ResponsesInputTokensDetails{
-			CachedTokens: state.CacheReadInputTokens,
+			CachedTokens:            state.CacheReadInputTokens,
+			CacheWriteTokensDetails: state.CacheWriteTokensDetails,
 		}
 	}
 

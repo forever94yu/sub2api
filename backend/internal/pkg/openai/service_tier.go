@@ -72,7 +72,7 @@ func normalizeServiceTier(raw string, allowAuto bool) *string {
 		tier = "priority"
 	}
 	switch tier {
-	case "default", "priority", "flex", "scale":
+	case "default", "priority", "ultrafast", "flex", "scale":
 		return &tier
 	case "auto":
 		if allowAuto {

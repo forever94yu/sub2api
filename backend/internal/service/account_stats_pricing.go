@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 )
 
 // resolveAccountStatsCost 计算账号统计定价费用。
@@ -28,6 +29,7 @@ func resolveAccountStatsCost(
 	requestCount int,
 	totalCost float64,
 	serviceTier string,
+	pricingAt ...time.Time,
 ) *float64 {
 	if channelService == nil || upstreamModel == "" {
 		return nil
@@ -55,14 +57,25 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier)
+		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, pricingAt...)
 	}
 
 	return nil
 }
 
 // tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的价格计算费用。
-func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string) *float64 {
+func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string, pricingAt ...time.Time) *float64 {
+	if isOpenAIGPT62Model(model) || isOpenAIImage26Model(model) {
+		var at time.Time
+		if len(pricingAt) > 0 {
+			at = pricingAt[0]
+		}
+		breakdown, err := billingService.calculateCostInternalWithPolicyAt(model, tokens, 1, serviceTier, nil, true, at)
+		if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
+			return nil
+		}
+		return &breakdown.TotalCost
+	}
 	pricing, err := billingService.GetModelPricing(model)
 	if err != nil || pricing == nil {
 		return nil
@@ -236,6 +249,7 @@ func applyAccountStatsCost(
 	upstreamModel, requestedModel string,
 	tokens UsageTokens,
 	totalCost float64,
+	pricingAt ...time.Time,
 ) {
 	model := upstreamModel
 	if model == "" {
@@ -250,6 +264,6 @@ func applyAccountStatsCost(
 		serviceTier = *usageLog.ServiceTier
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, serviceTier,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, serviceTier, pricingAt...,
 	)
 }

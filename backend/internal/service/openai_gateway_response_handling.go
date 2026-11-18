@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -1187,6 +1188,10 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	}
 	cacheReadTokens := openAICacheReadTokensFromUsage(value)
 	cacheCreationTokens := openAICacheCreationTokensFromUsage(value)
+	cacheWrite30mTokens, cacheWrite12hTokens := 0, 0
+	if details := openai.ParseCacheWriteTokensDetails(value, cacheCreationTokens); details != nil {
+		cacheWrite30mTokens, cacheWrite12hTokens = details.TTL30mTokens, details.TTL12hTokens
+	}
 	imageOutputTokens := value.Get("output_tokens_details.image_tokens").Int()
 	if imageOutputTokens == 0 {
 		imageOutputTokens = value.Get("completion_tokens_details.image_tokens").Int()
@@ -1203,6 +1208,8 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 		ImageInputTokens:         imageInputTokens,
 		OutputTokens:             int(outputTokens),
 		CacheCreationInputTokens: cacheCreationTokens,
+		CacheCreation30mTokens:   cacheWrite30mTokens,
+		CacheCreation12hTokens:   cacheWrite12hTokens,
 		CacheReadInputTokens:     cacheReadTokens,
 		ImageOutputTokens:        int(imageOutputTokens),
 	}, true

@@ -312,6 +312,10 @@ func openAIImageOutputMIMEType(outputFormat string) string {
 		return "image/jpeg"
 	case "webp":
 		return "image/webp"
+	case "svg":
+		return "image/svg+xml"
+	case "gif":
+		return "image/gif"
 	default:
 		return "image/png"
 	}
@@ -331,6 +335,9 @@ func openAIImageUploadToDataURL(upload OpenAIImagesUpload) (string, error) {
 func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel string) ([]byte, error) {
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
+	}
+	if parsed.requiresNativeImagesAPI() {
+		return nil, fmt.Errorf("%s", openAIImagesNativeOnlyOptionsMessage)
 	}
 	prompt := strings.TrimSpace(parsed.Prompt)
 	if prompt == "" {

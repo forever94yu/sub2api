@@ -411,3 +411,26 @@ func TestSetOpenAIFastPolicySettings_Validation(t *testing.T) {
 	require.Equal(t, OpenAIFastPolicyActionForcePriority, got.Rules[0].Action)
 	require.Equal(t, []int64{42, 43}, got.Rules[0].UserIDs)
 }
+
+func TestOpenAIFastPolicyUltrafastPersistenceAndMatching(t *testing.T) {
+	repo := &openAIFastPolicyRepoStub{values: map[string]string{}}
+	svc := NewSettingService(repo, &config.Config{})
+	err := svc.SetOpenAIFastPolicySettings(context.Background(), &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{{ServiceTier: " ULTRAFAST ", Action: BetaPolicyActionBlock, Scope: BetaPolicyScopeAll}},
+	})
+	require.NoError(t, err)
+	settings, err := svc.GetOpenAIFastPolicySettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "ultrafast", settings.Rules[0].ServiceTier)
+	for _, tier := range []string{"ultrafast", "priority", "flex", "default"} {
+		action, _ := evaluateOpenAIFastPolicyWithSettings(settings, 0, nil, "gpt-6.2-sol", tier)
+		want := BetaPolicyActionPass
+		if tier == "ultrafast" {
+			want = BetaPolicyActionBlock
+		}
+		require.Equal(t, want, action, tier)
+	}
+	settings.Rules[0].ServiceTier = OpenAIFastTierAny
+	action, _ := evaluateOpenAIFastPolicyWithSettings(settings, 0, nil, "gpt-6.2-sol", "ultrafast")
+	require.Equal(t, BetaPolicyActionBlock, action)
+}

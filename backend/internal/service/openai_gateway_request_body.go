@@ -869,7 +869,7 @@ func normalizeOpenAIServiceTier(raw string) *string {
 	// 但能让直连 OpenAI SDK 的用户透传 auto/default/scale 以便抓包/调试。
 	// 真未知值仍返回 nil，由 normalizeResponsesBodyServiceTier 从 body 中删除。
 	switch value {
-	case "priority", "flex", "auto", "default", "scale":
+	case "priority", "ultrafast", "flex", "auto", "default", "scale":
 		return &value
 	default:
 		return nil
@@ -1479,7 +1479,7 @@ func normalizeOpenAIReasoningEffort(raw string) string {
 }
 
 func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
-	if isOpenAIGPT61SolModel(model) {
+	if isOpenAIGPT61Or62Model(model) {
 		switch strings.ToLower(strings.TrimSpace(raw)) {
 		case "none", "minimal":
 			return "low"

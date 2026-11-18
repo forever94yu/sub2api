@@ -146,3 +146,62 @@ and the original amount used for retry fingerprints remain unchanged.
 Sources: [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol),
 [pricing](https://developers.openai.com/api/docs/pricing), and
 [GPT-6 migration](https://developers.openai.com/api/docs/guides/latest-model).
+
+## GPT-6.2 and GPT Image 2.6
+
+Verified against OpenAI documentation on 2026-11-18. Only the four new model
+cards were added; all existing model cards and their prices are unchanged.
+
+Prices are USD per million tokens:
+
+| Model | Input | Cached input | 30-minute write | 12-hour write | Output |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `gpt-6.2-astra` | 8 | 0.40 | 10 | 20 | 40 |
+| `gpt-6.2-sol` | 2 | 0.10 | 2.50 | 5 | 10 |
+
+Both models have a 1,050,000-token context window, 922,000 maximum input and
+128,000 maximum output tokens. Above 272,000 total input tokens, including
+cache reads and writes, all input/cache rates are 2x and output rates are 1.5x,
+subject to the existing account and group long-context settings. Fast/priority
+uses 2x rates. Ultrafast uses 3x through February 28, 2027 and 6x from March 1,
+2027 in Pacific time, using the request's pricing timestamp. Response tier
+takes precedence over the forwarded request tier. No Flex price is published
+for GPT-6.2; a reported Flex tier does not inherit an older model's discount.
+
+Cache-write lifetime details are read from
+`input_tokens_details.cache_write_tokens_details.ttl_30m_tokens` and
+`ttl_12h_tokens`, and preserved by protocol conversions. Reads, writes, and
+ordinary input are mutually exclusive. The usage log retains aggregate cache
+writes and their combined cost; reasoning is already included in output.
+Explicit channel/group cache-write prices override both lifetimes.
+
+GPT-6.2 tool calls use a Responses-capable upstream. Native Chat Completions
+supports requests without tools. Legacy `none` and `minimal` reasoning map to
+`low`; unsupported sampling/logprob parameters are removed. Only the two exact
+official IDs are advertised, with no invented snapshots or effort aliases.
+
+| Image model | Text input | Cached text | Image input | Cached image | Image output |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `gpt-image-2.6-sunburst` | 5 | 1.25 | 8 | 2 | 30 |
+| `gpt-image-2.6-flare` | 5 | 1.25 | 8 | 2 | 30 |
+
+Image 2.6 defaults to token billing; explicit per-image/per-request cards and
+configured group image-size prices retain precedence, including explicit zero.
+An explicit token model card still takes priority over group image-size prices.
+Earlier image models keep their existing billing behavior. Native
+Images JSON and multipart requests preserve complexity, markup, SVG and GIF
+options. These options require an API-key account with the native Images API.
+Under token billing, SVG `svg_usage` is priced separately using its declared
+author model, then added to the image cost for one settlement. Custom per-image
+and per-request prices cover the full generation. SVG object downloads use attachment
+disposition. Cached image prices are documented, but unavailable upstream cache
+counts are never inferred. Live access remains dependent on the upstream account.
+
+Sources: [Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra),
+[Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol),
+[Sunburst](https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst),
+[Flare](https://developers.openai.com/api/docs/models/gpt-image-2.6-flare),
+[pricing](https://developers.openai.com/api/docs/pricing),
+[prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching),
+[Ultrafast](https://developers.openai.com/api/docs/guides/ultrafast-mode), and
+[image generation](https://developers.openai.com/api/docs/guides/image-generation).

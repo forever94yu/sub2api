@@ -620,6 +620,72 @@ func TestTryModelFilePricing_WithCacheTokens(t *testing.T) {
 	require.InDelta(t, 0.95, *result, 1e-12)
 }
 
+func TestTryModelFilePricing_GPT62CacheWriteBuckets(t *testing.T) {
+	bs := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{
+		InputTokens: 1000, OutputTokens: 100, CacheReadTokens: 2000,
+		CacheCreationTokens: 1000, CacheCreation30mTokens: 400, CacheCreation12hTokens: 600,
+	}
+	for _, tt := range []struct {
+		tier string
+		want float64
+	}{
+		{"default", .0072},
+		{"priority", .0144},
+		{"flex", .0072},
+	} {
+		t.Run(tt.tier, func(t *testing.T) {
+			cost := tryModelFilePricing(bs, "gpt-6.2-sol", tokens, tt.tier)
+			require.NotNil(t, cost)
+			require.InDelta(t, tt.want, *cost, 1e-12)
+		})
+	}
+}
+
+func TestTryModelFilePricing_Image26InputBuckets(t *testing.T) {
+	bs := NewBillingService(&config.Config{}, nil)
+	for _, model := range []string{"gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
+		t.Run(model, func(t *testing.T) {
+			cost := tryModelFilePricing(bs, model, UsageTokens{
+				InputTokens: 1500, ImageInputTokens: 1000, OutputTokens: 800, ImageOutputTokens: 800,
+			}, "")
+			require.NotNil(t, cost)
+			// Text input $5/M, image input $8/M, image output $30/M.
+			require.InDelta(t, .0345, *cost, 1e-12)
+		})
+	}
+}
+
+func TestApplyAccountStatsCost_GPT62PricingTimeAndLongContext(t *testing.T) {
+	channel := &Channel{ID: 1, Status: StatusActive}
+	cs := newTestChannelServiceForStats(t, channel, 10, "openai")
+	bs := NewBillingService(&config.Config{}, nil)
+	cutoff := time.Date(2027, 3, 1, 8, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		name   string
+		tier   string
+		at     time.Time
+		factor float64
+	}{
+		{"standard", "default", cutoff, 1},
+		{"priority", "priority", cutoff, 2},
+		{"promotion", "ultrafast", cutoff.Add(-time.Nanosecond), 3},
+		{"after promotion", "ultrafast", cutoff, 6},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			usageLog := &UsageLog{ServiceTier: &tt.tier}
+			applyAccountStatsCost(context.Background(), usageLog, cs, bs,
+				1, 10, "gpt-6.2-sol", "gpt-6.2-sol", UsageTokens{
+					InputTokens: 270001, OutputTokens: 100, CacheReadTokens: 1000,
+					CacheCreationTokens: 1000, CacheCreation30mTokens: 400, CacheCreation12hTokens: 600,
+				}, 999, tt.at)
+			require.NotNil(t, usageLog.AccountStatsCost)
+			// 272001 total input tokens: input/cache 2x, output 1.5x, then service tier.
+			require.InDelta(t, 1.089704*tt.factor, *usageLog.AccountStatsCost, 1e-12)
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // resolveAccountStatsCost — integration tests covering the 4-level priority chain
 // ---------------------------------------------------------------------------

@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -238,6 +240,26 @@ func detectedImageContentType(data []byte) string {
 	if strings.HasPrefix(ct, "image/") {
 		return ct
 	}
+	// The HTTP MIME sniffer identifies SVG as XML/text; inspect a bounded XML root.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	decoder := xml.NewDecoder(io.LimitReader(bytes.NewReader(data), 4096))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break
+		}
+		switch token := token.(type) {
+		case xml.StartElement:
+			if token.Name.Local == "svg" && (token.Name.Space == "" || token.Name.Space == "http://www.w3.org/2000/svg") {
+				return "image/svg+xml"
+			}
+			return ""
+		case xml.CharData:
+			if len(bytes.TrimSpace(token)) != 0 {
+				return ""
+			}
+		}
+	}
 	return ""
 }
 
@@ -251,6 +273,8 @@ func extensionForContentType(ct string) string {
 		return ".webp"
 	case strings.Contains(ct, "gif"):
 		return ".gif"
+	case ct == "image/svg+xml":
+		return ".svg"
 	default:
 		return ".png"
 	}

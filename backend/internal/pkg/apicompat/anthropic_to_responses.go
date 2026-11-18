@@ -507,7 +507,7 @@ func isReasoningModel(model string) bool {
 	if idx := strings.LastIndex(model, "/"); idx >= 0 {
 		model = strings.TrimSpace(model[idx+1:])
 	}
-	return model == "gpt-6-astra" || model == "gpt-6.1-sol"
+	return model == "gpt-6-astra" || model == "gpt-6.1-sol" || model == "gpt-6.2-astra" || model == "gpt-6.2-sol"
 }
 
 // normalizeToolParameters ensures the tool parameter schema is valid for

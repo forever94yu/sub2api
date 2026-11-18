@@ -7,6 +7,9 @@ package apicompat
 import (
 	"bytes"
 	"encoding/json"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/tidwall/gjson"
 )
 
 // ---------------------------------------------------------------------------
@@ -156,13 +159,16 @@ func AnthropicStopReasonString(p *string) string {
 	return *p
 }
 
+type CacheWriteTokensDetails = openai.CacheWriteTokensDetails
+
 // AnthropicUsage holds token counts in Anthropic format.
 type AnthropicUsage struct {
-	InputTokens              int                          `json:"input_tokens"`
-	OutputTokens             int                          `json:"output_tokens"`
-	CacheCreationInputTokens int                          `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int                          `json:"cache_read_input_tokens"`
-	CacheCreation            *AnthropicCacheCreationUsage `json:"cache_creation,omitempty"`
+	InputTokens              int                             `json:"input_tokens"`
+	OutputTokens             int                             `json:"output_tokens"`
+	CacheCreationInputTokens int                             `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int                             `json:"cache_read_input_tokens"`
+	CacheCreation            *AnthropicCacheCreationUsage    `json:"cache_creation,omitempty"`
+	CacheWriteTokensDetails  *openai.CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
 }
 
 type AnthropicCacheCreationUsage struct {
@@ -598,6 +604,13 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 			u.InputTokensDetails.CacheCreationTokens = u.CacheCreationInputTokens
 		}
 	}
+	writeDetails := openai.ParseCacheWriteTokensDetails(gjson.ParseBytes(data), u.CacheCreationInputTokens)
+	if writeDetails != nil && u.InputTokensDetails == nil {
+		u.InputTokensDetails = &ResponsesInputTokensDetails{}
+	}
+	if u.InputTokensDetails != nil {
+		u.InputTokensDetails.CacheWriteTokensDetails = writeDetails
+	}
 	if u.TotalTokens == 0 && (u.InputTokens != 0 || u.OutputTokens != 0) {
 		u.TotalTokens = u.InputTokens + u.OutputTokens
 	}
@@ -606,10 +619,11 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 
 // ResponsesInputTokensDetails breaks down input token usage.
 type ResponsesInputTokensDetails struct {
-	CachedTokens        int `json:"cached_tokens,omitempty"`
-	AudioTokens         int `json:"audio_tokens,omitempty"`
-	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
-	CacheWriteTokens    int `json:"cache_write_tokens,omitempty"`
+	CachedTokens            int                             `json:"cached_tokens,omitempty"`
+	AudioTokens             int                             `json:"audio_tokens,omitempty"`
+	CacheCreationTokens     int                             `json:"cache_creation_tokens,omitempty"`
+	CacheWriteTokens        int                             `json:"cache_write_tokens,omitempty"`
+	CacheWriteTokensDetails *openai.CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
 }
 
 // ResponsesOutputTokensDetails breaks down output token usage.
@@ -811,6 +825,7 @@ func (u *ChatUsage) UnmarshalJSON(data []byte) error {
 			u.PromptTokensDetails.CachedTokens = 0
 			u.PromptTokensDetails.CacheCreationTokens = 0
 			u.PromptTokensDetails.CacheWriteTokens = 0
+			u.PromptTokensDetails.CacheWriteTokensDetails = nil
 		}
 		return nil
 	}
@@ -820,6 +835,7 @@ func (u *ChatUsage) UnmarshalJSON(data []byte) error {
 	u.PromptTokensDetails.CachedTokens = canonical.CachedTokens
 	u.PromptTokensDetails.CacheCreationTokens = canonical.CacheCreationTokens
 	u.PromptTokensDetails.CacheWriteTokens = canonical.CacheWriteTokens
+	u.PromptTokensDetails.CacheWriteTokensDetails = canonical.CacheWriteTokensDetails
 	return nil
 }
 
@@ -832,13 +848,14 @@ func (u *ChatUsage) UnmarshalJSON(data []byte) error {
 //   - completion_tokens_details: reasoning_tokens, audio_tokens,
 //     accepted_prediction_tokens, rejected_prediction_tokens
 type ChatTokenDetails struct {
-	CachedTokens             int `json:"cached_tokens,omitempty"`
-	AudioTokens              int `json:"audio_tokens,omitempty"`
-	CacheCreationTokens      int `json:"cache_creation_tokens,omitempty"`
-	CacheWriteTokens         int `json:"cache_write_tokens,omitempty"`
-	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
-	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
-	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
+	CachedTokens             int                             `json:"cached_tokens,omitempty"`
+	AudioTokens              int                             `json:"audio_tokens,omitempty"`
+	CacheCreationTokens      int                             `json:"cache_creation_tokens,omitempty"`
+	CacheWriteTokens         int                             `json:"cache_write_tokens,omitempty"`
+	CacheWriteTokensDetails  *openai.CacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
+	ReasoningTokens          int                             `json:"reasoning_tokens,omitempty"`
+	AcceptedPredictionTokens int                             `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens int                             `json:"rejected_prediction_tokens,omitempty"`
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.

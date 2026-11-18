@@ -1234,6 +1234,8 @@ func addOpenAIUsage(dst *OpenAIUsage, usage OpenAIUsage) {
 	dst.ImageInputTokens += usage.ImageInputTokens
 	dst.OutputTokens += usage.OutputTokens
 	dst.CacheCreationInputTokens += usage.CacheCreationInputTokens
+	dst.CacheCreation30mTokens += usage.CacheCreation30mTokens
+	dst.CacheCreation12hTokens += usage.CacheCreation12hTokens
 	dst.CacheReadInputTokens += usage.CacheReadInputTokens
 	dst.ImageOutputTokens += usage.ImageOutputTokens
 }

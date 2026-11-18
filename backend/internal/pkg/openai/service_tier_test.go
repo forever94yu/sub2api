@@ -20,6 +20,7 @@ func TestServiceTierObserverTerminalOverridesEarlyDeclaration(t *testing.T) {
 func TestServiceTierObserverNormalizationAndFallback(t *testing.T) {
 	for _, tc := range []struct{ name, payload, want string }{
 		{"fast", `{"service_tier":" FAST "}`, "priority"},
+		{"ultrafast", `{"response":{"service_tier":"ultrafast"}}`, "ultrafast"},
 		{"nested", `{"response":{"service_tier":"flex"},"service_tier":"priority"}`, "flex"},
 		{"invalid_nested", `{"response":{"service_tier":12},"service_tier":"default"}`, "default"},
 		{"unknown", `{"service_tier":"unknown"}`, "flex"},

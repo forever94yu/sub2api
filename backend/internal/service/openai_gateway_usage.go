@@ -156,12 +156,14 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// Calculate cost
 	tokens := UsageTokens{
-		InputTokens:         actualInputTokens,
-		ImageInputTokens:    result.Usage.ImageInputTokens,
-		OutputTokens:        result.Usage.OutputTokens,
-		CacheCreationTokens: result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:     result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:   result.Usage.ImageOutputTokens,
+		InputTokens:            actualInputTokens,
+		ImageInputTokens:       result.Usage.ImageInputTokens,
+		OutputTokens:           result.Usage.OutputTokens,
+		CacheCreationTokens:    result.Usage.CacheCreationInputTokens,
+		CacheCreation30mTokens: result.Usage.CacheCreation30mTokens,
+		CacheCreation12hTokens: result.Usage.CacheCreation12hTokens,
+		CacheReadTokens:        result.Usage.CacheReadInputTokens,
+		ImageOutputTokens:      result.Usage.ImageOutputTokens,
 	}
 
 	// Get rate multiplier
@@ -345,6 +347,10 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:       optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:    result.ImageSizeBreakdown,
 	}
+	if result.Usage.SVGUsage != nil {
+		usageLog.InputTokens += result.Usage.SVGUsage.InputTokens
+		usageLog.OutputTokens += result.Usage.SVGUsage.OutputTokens
+	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
@@ -421,8 +427,26 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
 			account.ID, *apiKey.GroupID, result.UpstreamModel, result.Model,
-			tokens, cost.TotalCost,
+			tokens, cost.TotalCost, pricingAt,
 		)
+		if svg := result.Usage.SVGUsage; svg != nil && usageLog.AccountStatsCost != nil && s.channelService != nil {
+			channel, channelErr := s.channelService.GetChannelForGroup(ctx, *apiKey.GroupID)
+			if channelErr == nil && channel != nil && !channel.ApplyPricingToAccountStats {
+				platform := s.channelService.GetGroupPlatform(ctx, *apiKey.GroupID)
+				if tryCustomRules(channel, account.ID, *apiKey.GroupID, platform, sentModel, tokens, max(result.ImageCount, 1)) == nil {
+					authorTokens := UsageTokens{InputTokens: svg.InputTokens, OutputTokens: svg.OutputTokens}
+					authorCost := tryModelFilePricing(s.billingService, svg.Model, authorTokens, "default", pricingAt)
+					if authorCost == nil {
+						if configured, authorErr := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, svg.Model, 1, pricingAt, authorTokens, "default", longContextBillingGate); authorErr == nil {
+							authorCost = &configured.TotalCost
+						}
+					}
+					if authorCost != nil {
+						*usageLog.AccountStatsCost = newBillingAmount(*usageLog.AccountStatsCost).add(newBillingAmount(*authorCost)).value
+					}
+				}
+			}
+		}
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
@@ -537,8 +561,23 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	}
 
 	if result != nil && result.ImageCount > 0 {
-		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
-		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
+		resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
+		// Image 2.6 defaults to its official token card. Explicit image/request
+		// prices still win, and earlier image models retain their billing mode.
+		image26 := isOpenAIImage26Model(billingModel) || isOpenAIImage26Model(result.UpstreamModel)
+		if resolved == nil && image26 {
+			sizeTier := NormalizeImageBillingTierOrDefault(result.ImageSize)
+			if !apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
+				if refreshed := s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey); refreshed != apiKey {
+					apiKey = refreshed
+					resolved = s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
+				}
+			}
+			if resolved == nil && apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
+				return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
+			}
+		}
+		if (resolved != nil && resolved.Mode != BillingModeToken) || (resolved == nil && !image26) {
 			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
 		}
 	}
@@ -604,6 +643,24 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 		}
 		return nil, fmt.Errorf("calculate OpenAI usage cost failed for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
 	}
+	if tokenCost.BillingMode == "" {
+		tokenCost.BillingMode = string(BillingModeToken)
+	}
+	if result != nil && result.Usage.SVGUsage != nil {
+		svg := result.Usage.SVGUsage
+		if identified, _ := s.hasIdentifiedOpenAIResponsePricing(ctx, svg.Model, apiKey); !identified {
+			return nil, fmt.Errorf("%w: SVG author model %q", ErrModelPricingUnavailable, svg.Model)
+		}
+		authorCost, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, svg.Model, multiplier, pricingAt,
+			UsageTokens{InputTokens: svg.InputTokens, OutputTokens: svg.OutputTokens}, "default", longContextBillingGate)
+		if err != nil {
+			return nil, fmt.Errorf("calculate SVG author cost: %w", err)
+		}
+		tokenCost.InputCost += authorCost.InputCost
+		tokenCost.OutputCost += authorCost.OutputCost
+		tokenCost.LongContextBillingApplied = tokenCost.LongContextBillingApplied || authorCost.LongContextBillingApplied
+		addCostBreakdownTotals(tokenCost, authorCost)
+	}
 	if searchCost == nil || (searchCost.TotalCost == 0 && searchCost.ActualCost == 0) {
 		return tokenCost, nil
 	}
@@ -668,6 +725,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 		multiplier,
 		serviceTier,
 		longContextBillingGate == nil || *longContextBillingGate,
+		pricingAt,
 	)
 }
 

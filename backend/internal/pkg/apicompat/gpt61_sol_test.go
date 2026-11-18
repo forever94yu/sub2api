@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGPT61SolConversionRemovesSampling(t *testing.T) {
-	for _, model := range []string{"gpt-6.1-sol", "openai/GPT-6.1-SOL"} {
+func TestGPT61And62ConversionRemovesSampling(t *testing.T) {
+	for _, model := range []string{"gpt-6.1-sol", "openai/GPT-6.1-SOL", "gpt-6.2-astra", "openai/GPT-6.2-SOL"} {
 		for _, effort := range []string{"none", "minimal", "", "low", "medium", "max"} {
 			t.Run(model+"/"+effort, func(t *testing.T) {
 				temperature, topP := 0.7, 0.9

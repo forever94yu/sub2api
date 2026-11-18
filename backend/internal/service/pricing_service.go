@@ -186,6 +186,7 @@ type LiteLLMModelPricing struct {
 	CacheCreationInputTokenCost         float64 `json:"cache_creation_input_token_cost"`
 	CacheCreationInputTokenCostPriority float64 `json:"cache_creation_input_token_cost_priority"`
 	CacheCreationInputTokenCostAbove1hr float64 `json:"cache_creation_input_token_cost_above_1hr"`
+	CacheCreationInputTokenCost12h      float64 `json:"cache_creation_input_token_cost_12h,omitempty"`
 	CacheReadInputTokenCost             float64 `json:"cache_read_input_token_cost"`
 	CacheReadInputTokenCostPriority     float64 `json:"cache_read_input_token_cost_priority"`
 	LongContextInputTokenThreshold      int     `json:"long_context_input_token_threshold,omitempty"`
@@ -221,6 +222,7 @@ type LiteLLMRawEntry struct {
 	CacheCreationInputTokenCost         *float64 `json:"cache_creation_input_token_cost"`
 	CacheCreationInputTokenCostPriority *float64 `json:"cache_creation_input_token_cost_priority"`
 	CacheCreationInputTokenCostAbove1hr *float64 `json:"cache_creation_input_token_cost_above_1hr"`
+	CacheCreationInputTokenCost12h      *float64 `json:"cache_creation_input_token_cost_12h"`
 	CacheReadInputTokenCost             *float64 `json:"cache_read_input_token_cost"`
 	CacheReadInputTokenCostPriority     *float64 `json:"cache_read_input_token_cost_priority"`
 	LongContextInputTokenThreshold      *int     `json:"long_context_input_token_threshold"`
@@ -548,6 +550,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.CacheCreationInputTokenCostAbove1hr != nil {
 			pricing.CacheCreationInputTokenCostAbove1hr = *entry.CacheCreationInputTokenCostAbove1hr
+		}
+		if entry.CacheCreationInputTokenCost12h != nil {
+			pricing.CacheCreationInputTokenCost12h = *entry.CacheCreationInputTokenCost12h
 		}
 		if entry.CacheReadInputTokenCost != nil {
 			pricing.CacheReadInputTokenCost = *entry.CacheReadInputTokenCost
@@ -1042,6 +1047,12 @@ func (s *PricingService) extractBaseName(model string) string {
 // 5. gpt-5.4* -> 业务静态兜底价
 // 6. 最终回退到 DefaultTestModel (gpt-5.1-codex)
 func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
+	if pricing := openAIGPT62FallbackPricing[model]; pricing != nil {
+		return pricing
+	}
+	if isOpenAIImage26Model(model) {
+		return openAIImage26FallbackPricing
+	}
 	if model == "gpt-6.1-sol" {
 		logger.With(zap.String("component", "service.pricing")).
 			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-6.1-sol(static)"))

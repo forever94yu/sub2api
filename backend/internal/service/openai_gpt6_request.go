@@ -11,7 +11,7 @@ import (
 
 func validateOpenAIGPT6ChatTools(body []byte) error {
 	model := gjson.GetBytes(body, "model").String()
-	if isOpenAIGPT61SolModel(model) {
+	if isOpenAIGPT61Or62Model(model) {
 		hasTools := len(gjson.GetBytes(body, "tools").Array()) > 0 || len(gjson.GetBytes(body, "functions").Array()) > 0
 		for _, message := range gjson.GetBytes(body, "messages").Array() {
 			role := message.Get("role").String()
@@ -21,7 +21,7 @@ func validateOpenAIGPT6ChatTools(body []byte) error {
 			}
 		}
 		if hasTools {
-			return fmt.Errorf("%s tool calling requires the Responses API; Chat Completions supports requests without tools", openAIGPT61SolModelID)
+			return fmt.Errorf("%s tool calling requires the Responses API; Chat Completions supports requests without tools", normalizeKnownOpenAIGPT6Model(model))
 		}
 		return nil
 	}
@@ -41,17 +41,17 @@ func validateOpenAIGPT6ChatTools(body []byte) error {
 	return fmt.Errorf("%s function tools require reasoning_effort=none on Chat Completions; use a Responses-capable upstream to combine tools with reasoning", normalizeKnownOpenAIGPT6Model(model))
 }
 
-// GPT-6 Sol and Luna accept sampling only with reasoning none. GPT-6.1 Sol
+// GPT-6 Sol and Luna accept sampling only with reasoning none. GPT-6.1/6.2
 // does not accept sampling at any effort. Omitted effort uses medium.
 func normalizeOpenAIGPT6SamplingBody(body []byte, model string) []byte {
-	if !isOpenAIGPT6SolLunaModel(model) && !isOpenAIGPT61SolModel(model) {
+	if !isOpenAIGPT6SolLunaModel(model) && !isOpenAIGPT61Or62Model(model) {
 		return body
 	}
 	effort := gjson.GetBytes(body, "reasoning.effort").String()
 	if effort == "" {
 		effort = gjson.GetBytes(body, "reasoning_effort").String()
 	}
-	if !isOpenAIGPT61SolModel(model) && strings.EqualFold(strings.TrimSpace(effort), "none") {
+	if !isOpenAIGPT61Or62Model(model) && strings.EqualFold(strings.TrimSpace(effort), "none") {
 		return body
 	}
 	for _, field := range []string{"temperature", "top_p", "top_logprobs", "logprobs"} {

@@ -1321,6 +1321,29 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(summary.text()).not.toContain("透传");
   });
 
+  it("selects and saves an independent ultrafast policy", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_fast_policy_settings: {
+        rules: [{ service_tier: "priority", action: "block", scope: "all" }],
+      },
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const tierSelect = wrapper.findAll("select").find((select) =>
+      select.find('option[value="priority"]').exists() && select.find('option[value="flex"]').exists(),
+    );
+    expect(tierSelect).toBeDefined();
+    expect(tierSelect!.find('option[value="ultrafast"]').exists()).toBe(true);
+    await tierSelect!.setValue("ultrafast");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      openai_fast_policy_settings: { rules: [expect.objectContaining({ service_tier: "ultrafast", action: "block" })] },
+    }));
+  });
+
   it("loads and saves upstream billing probe settings from the gateway tab", async () => {
     getUpstreamBillingProbeSettings.mockResolvedValueOnce({
       enabled: false,

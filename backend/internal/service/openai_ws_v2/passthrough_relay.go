@@ -27,6 +27,8 @@ type Usage struct {
 	ImageInputTokens         int
 	OutputTokens             int
 	CacheCreationInputTokens int
+	CacheCreation30mTokens   int
+	CacheCreation12hTokens   int
 	CacheReadInputTokens     int
 	ImageOutputTokens        int
 }
@@ -961,10 +963,6 @@ func parseUsageAndAccumulate(
 	if !outputResult.Exists() {
 		outputResult = gjson.GetBytes(message, "response.usage.completion_tokens")
 	}
-	cachedResult := gjson.GetBytes(message, "response.usage.input_tokens_details.cached_tokens")
-	if !cachedResult.Exists() {
-		cachedResult = gjson.GetBytes(message, "response.usage.prompt_tokens_details.cached_tokens")
-	}
 	imageTokens := usageResult.Get("output_tokens_details.image_tokens").Int()
 	if imageTokens == 0 {
 		imageTokens = usageResult.Get("completion_tokens_details.image_tokens").Int()
@@ -991,7 +989,7 @@ func parseUsageAndAccumulate(
 
 	inputTokens, inputOK := parseUsageIntField(inputResult, true)
 	outputTokens, outputOK := parseUsageIntField(outputResult, true)
-	cachedTokens, cachedOK := parseUsageIntField(cachedResult, false)
+	cachedTokens, cachedOK := openAICacheReadTokensFromUsage(usageResult)
 	if !inputOK || !outputOK || !cachedOK {
 		recordUsageParseFailure()
 		if onParseFailure != nil {
@@ -1008,11 +1006,17 @@ func parseUsageAndAccumulate(
 		CacheReadInputTokens:     cachedTokens,
 		ImageOutputTokens:        int(imageTokens),
 	}
+	if details := openai.ParseCacheWriteTokensDetails(usageResult, parsedUsage.CacheCreationInputTokens); details != nil {
+		parsedUsage.CacheCreation30mTokens = details.TTL30mTokens
+		parsedUsage.CacheCreation12hTokens = details.TTL12hTokens
+	}
 
 	state.usage.InputTokens += parsedUsage.InputTokens
 	state.usage.ImageInputTokens += parsedUsage.ImageInputTokens
 	state.usage.OutputTokens += parsedUsage.OutputTokens
 	state.usage.CacheCreationInputTokens += parsedUsage.CacheCreationInputTokens
+	state.usage.CacheCreation30mTokens += parsedUsage.CacheCreation30mTokens
+	state.usage.CacheCreation12hTokens += parsedUsage.CacheCreation12hTokens
 	state.usage.CacheReadInputTokens += parsedUsage.CacheReadInputTokens
 	state.usage.ImageOutputTokens += parsedUsage.ImageOutputTokens
 	return parsedUsage
@@ -1026,6 +1030,33 @@ func parseUsageIntField(value gjson.Result, required bool) (int, bool) {
 		return 0, false
 	}
 	return int(value.Int()), true
+}
+
+func openAICacheReadTokensFromUsage(value gjson.Result) (int, bool) {
+	for _, path := range []string{"input_tokens_details.cached_tokens", "prompt_tokens_details.cached_tokens"} {
+		field := value.Get(path)
+		if !field.Exists() {
+			continue
+		}
+		if field.Type == gjson.Null {
+			return 0, true
+		}
+		tokens, valid := parseUsageIntField(field, false)
+		return max(tokens, 0), valid
+	}
+	for _, path := range []string{"cache_read_input_tokens", "cache_read_tokens", "cached_tokens"} {
+		field := value.Get(path)
+		if field.Exists() && field.Type != gjson.Null {
+			tokens, valid := parseUsageIntField(field, false)
+			if !valid {
+				return 0, false
+			}
+			if tokens > 0 {
+				return tokens, true
+			}
+		}
+	}
+	return 0, true
 }
 
 func openAICacheCreationTokensFromUsage(value gjson.Result) int {

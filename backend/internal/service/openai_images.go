@@ -43,7 +43,8 @@ const (
 	openAIDefaultImageModel        = "gpt-image-2.5-sunburst"
 
 	// ChatGPT sign-in no longer supports gpt-5.4-mini; API-key callers retain it.
-	openAIImagesOAuthResponsesMainModel = "gpt-5.6-luna"
+	openAIImagesOAuthResponsesMainModel  = "gpt-5.6-luna"
+	openAIImagesNativeOnlyOptionsMessage = "complexity, markup, SVG and GIF options require an API-key upstream with the native Images API"
 )
 
 type OpenAIImagesCapability string
@@ -51,6 +52,7 @@ type OpenAIImagesCapability string
 const (
 	OpenAIImagesCapabilityBasic  OpenAIImagesCapability = "images-basic"
 	OpenAIImagesCapabilityNative OpenAIImagesCapability = "images-native"
+	OpenAIImagesCapabilityAPIKey OpenAIImagesCapability = "images-apikey"
 )
 
 type OpenAIImagesUpload struct {
@@ -63,35 +65,36 @@ type OpenAIImagesUpload struct {
 }
 
 type OpenAIImagesRequest struct {
-	Endpoint           string
-	ContentType        string
-	Multipart          bool
-	Model              string
-	ExplicitModel      bool
-	Prompt             string
-	Stream             bool
-	N                  int
-	Size               string
-	ExplicitSize       bool
-	SizeTier           string
-	ResponseFormat     string
-	Quality            string
-	Background         string
-	OutputFormat       string
-	Moderation         string
-	InputFidelity      string
-	Style              string
-	OutputCompression  *int
-	PartialImages      *int
-	HasMask            bool
-	HasNativeOptions   bool
-	RequiredCapability OpenAIImagesCapability
-	InputImageURLs     []string
-	MaskImageURL       string
-	Uploads            []OpenAIImagesUpload
-	MaskUpload         *OpenAIImagesUpload
-	Body               []byte
-	bodyHash           string
+	Endpoint             string
+	ContentType          string
+	Multipart            bool
+	Model                string
+	ExplicitModel        bool
+	Prompt               string
+	Stream               bool
+	N                    int
+	Size                 string
+	ExplicitSize         bool
+	SizeTier             string
+	ResponseFormat       string
+	Quality              string
+	Background           string
+	OutputFormat         string
+	Moderation           string
+	InputFidelity        string
+	Style                string
+	OutputCompression    *int
+	PartialImages        *int
+	HasMask              bool
+	HasNativeOptions     bool
+	HasNativeOnlyOptions bool
+	RequiredCapability   OpenAIImagesCapability
+	InputImageURLs       []string
+	MaskImageURL         string
+	Uploads              []OpenAIImagesUpload
+	MaskUpload           *OpenAIImagesUpload
+	Body                 []byte
+	bodyHash             string
 }
 
 func (r *OpenAIImagesRequest) ModerationBody() []byte {
@@ -159,6 +162,10 @@ func (u OpenAIImagesUpload) ModerationDataURL() string {
 
 func (r *OpenAIImagesRequest) IsEdits() bool {
 	return r != nil && r.Endpoint == openAIImagesEditsEndpoint
+}
+
+func (r *OpenAIImagesRequest) requiresNativeImagesAPI() bool {
+	return r != nil && (r.HasNativeOnlyOptions || strings.EqualFold(r.OutputFormat, "svg") || strings.EqualFold(r.OutputFormat, "gif"))
 }
 
 func (r *OpenAIImagesRequest) StickySessionSeed() string {
@@ -307,6 +314,11 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 	req.HasNativeOptions = hasOpenAINativeImageOptions(func(path string) bool {
 		return gjson.GetBytes(body, path).Exists()
 	})
+	for _, field := range []string{"complexity", "markup", "svg", "frame_count", "frame_duration_ms"} {
+		if value := gjson.GetBytes(body, field); value.Exists() && value.Type != gjson.Null {
+			req.HasNativeOnlyOptions = true
+		}
+	}
 	return nil
 }
 
@@ -343,6 +355,10 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 
 		fileName := strings.TrimSpace(part.FileName())
 		if fileName != "" {
+			if name == "markup" {
+				req.HasNativeOptions = true
+				req.HasNativeOnlyOptions = true
+			}
 			partContentType := strings.TrimSpace(part.Header.Get("Content-Type"))
 			if name == "mask" && len(data) > 0 {
 				req.HasMask = true
@@ -431,6 +447,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 			if isOpenAINativeImageOption(name) && value != "" {
 				req.HasNativeOptions = true
 			}
+			if isOpenAINativeOnlyImageOption(name) && value != "" {
+				req.HasNativeOnlyOptions = true
+			}
 		}
 	}
 
@@ -502,6 +521,9 @@ func classifyOpenAIImagesCapability(req *OpenAIImagesRequest) OpenAIImagesCapabi
 	if req == nil {
 		return OpenAIImagesCapabilityNative
 	}
+	if req.requiresNativeImagesAPI() {
+		return OpenAIImagesCapabilityAPIKey
+	}
 	if req.ExplicitModel || req.ExplicitSize {
 		return OpenAIImagesCapabilityNative
 	}
@@ -531,6 +553,11 @@ func hasOpenAINativeImageOptions(exists func(path string) bool) bool {
 		"moderation",
 		"input_fidelity",
 		"partial_images",
+		"complexity",
+		"markup",
+		"svg",
+		"frame_count",
+		"frame_duration_ms",
 	} {
 		if exists(path) {
 			return true
@@ -542,6 +569,15 @@ func hasOpenAINativeImageOptions(exists func(path string) bool) bool {
 func isOpenAINativeImageOption(name string) bool {
 	switch strings.TrimSpace(strings.ToLower(name)) {
 	case "background", "quality", "style", "output_format", "output_compression", "moderation", "input_fidelity", "partial_images":
+		return true
+	default:
+		return isOpenAINativeOnlyImageOption(name)
+	}
+}
+
+func isOpenAINativeOnlyImageOption(name string) bool {
+	switch strings.TrimSpace(strings.ToLower(name)) {
+	case "complexity", "markup", "svg", "frame_count", "frame_duration_ms":
 		return true
 	default:
 		return false
@@ -567,6 +603,16 @@ func (s *OpenAIGatewayService) ForwardImages(
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)
 	case AccountTypeOAuth:
+		if parsed.requiresNativeImagesAPI() {
+			err := &OpenAIImagesUpstreamError{
+				StatusCode: http.StatusBadRequest,
+				ErrorType:  "invalid_request_error",
+				Code:       "native_images_api_required",
+				Message:    openAIImagesNativeOnlyOptionsMessage,
+			}
+			writeOpenAIImagesUpstreamErrorResponse(c, err)
+			return nil, err
+		}
 		return s.forwardOpenAIImagesOAuth(ctx, c, account, parsed, channelMappedModel)
 	default:
 		return nil, fmt.Errorf("unsupported account type: %s", account.Type)
@@ -1148,6 +1194,8 @@ func extractOpenAIImagesBillableCountFromJSONBytes(body []byte) int {
 
 func extractOpenAIImagesUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 	usage, ok := extractOpenAIUsageFromJSONBytes(body)
+	usage.SVGUsage = extractOpenAISVGUsageFromJSONBytes(body)
+	ok = ok || usage.SVGUsage != nil
 	if !ok || usage.ImageOutputTokens != 0 {
 		return usage, ok
 	}
@@ -1166,6 +1214,23 @@ func extractOpenAIImagesUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 		break
 	}
 	return usage, true
+}
+
+func extractOpenAISVGUsageFromJSONBytes(body []byte) *OpenAISVGUsage {
+	for _, path := range []string{"svg_usage", "response.svg_usage", "data.svg_usage", "data.response.svg_usage"} {
+		value := gjson.GetBytes(body, path)
+		if !value.IsObject() {
+			continue
+		}
+		model := value.Get("model")
+		input, inputOK := boundedJSONNonNegativeInt(value.Get("input_tokens"))
+		output, outputOK := boundedJSONNonNegativeInt(value.Get("output_tokens"))
+		if model.Type != gjson.String || strings.TrimSpace(model.String()) == "" || !inputOK || !outputOK {
+			return nil
+		}
+		return &OpenAISVGUsage{Model: strings.TrimSpace(model.String()), InputTokens: input, OutputTokens: output}
+	}
+	return nil
 }
 
 func mergeOpenAIUsage(dst *OpenAIUsage, body []byte) {
@@ -1187,6 +1252,9 @@ func mergeOpenAIUsage(dst *OpenAIUsage, body []byte) {
 		}
 		if parsed.ImageOutputTokens > 0 {
 			dst.ImageOutputTokens = parsed.ImageOutputTokens
+		}
+		if parsed.SVGUsage != nil {
+			dst.SVGUsage = parsed.SVGUsage
 		}
 	}
 }

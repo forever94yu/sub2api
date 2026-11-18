@@ -21,6 +21,16 @@ func TestDefaultModelsIncludeExactGPT61Sol(t *testing.T) {
 	require.NotContains(t, ids, "gpt-6.1-sol-preview")
 }
 
+func TestDefaultModelsIncludeExactGPT62AndImage26(t *testing.T) {
+	ids := DefaultModelIDs()
+	for _, id := range []string{"gpt-6.2-astra", "gpt-6.2-sol", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
+		require.Contains(t, ids, id)
+		require.NotContains(t, ids, id+"-2026-11-18")
+	}
+	require.NotContains(t, ids, "gpt-6.2")
+	require.NotContains(t, ids, "gpt-image-2.6")
+}
+
 func TestDefaultModelsIncludeOfficialGPTImage25Variants(t *testing.T) {
 	ids := DefaultModelIDs()
 	for _, id := range []string{

@@ -265,7 +265,7 @@ func applyOpenAIReasoningEffortPolicyForModel(body []byte, model, maxEffort stri
 		result = updated
 		changed = true
 	}
-	if isOpenAIGPT61SolModel(model) {
+	if isOpenAIGPT61Or62Model(model) {
 		// A group policy can request minimal, below this model's supported floor.
 		var normalized bool
 		result, normalized = normalizeAstraReasoningEffortBody(result, model)
