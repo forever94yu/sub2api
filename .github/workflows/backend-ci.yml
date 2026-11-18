@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.9'
+          python-version: '3.12'
       - name: Test Codex model catalog export
         run: python -m unittest discover -s deploy/tests -p test_export_codex_models.py
 
