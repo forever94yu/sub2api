@@ -74,6 +74,7 @@ type Group struct {
 	// ModelPricing overrides channel and built-in prices for matching models.
 	// Token intervals are selected only when LongContextPricingEnabled is true.
 	LongContextPricingEnabled bool
+	MonthlyTierPolicy         *MonthlyTierPolicy
 	ModelPricing              []ChannelModelPricing
 
 	// Claude Code 客户端限制

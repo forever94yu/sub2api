@@ -17,6 +17,7 @@ var ErrUsageBillingRequestConflict = errors.New("usage billing request fingerpri
 
 // UsageBillingCommand describes one billable request that must be applied at most once.
 type UsageBillingCommand struct {
+	MonthlyTier        *MonthlyTierBilling
 	RequestID          string
 	APIKeyID           int64
 	RequestFingerprint string
@@ -163,6 +164,7 @@ type AccountQuotaState struct {
 }
 
 type UsageBillingApplyResult struct {
+	MonthlyTier          *MonthlyTierSettlement
 	Applied              bool
 	APIKeyQuotaExhausted bool
 	NewBalance           *float64           // post-deduction balance (nil = no balance deduction)

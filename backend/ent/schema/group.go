@@ -194,6 +194,7 @@ func (Group) Fields() []ent.Field {
 		field.Bool("long_context_pricing_enabled").
 			Default(true).
 			Comment("是否按上下文长度应用模型阶梯价格；默认开启以保持官方/渠道长上下文价"),
+		field.JSON("monthly_tier_policy", json.RawMessage{}).Optional().SchemaType(map[string]string{dialect.Postgres: "jsonb"}),
 		field.JSON("model_pricing", json.RawMessage{}).
 			Optional().
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).

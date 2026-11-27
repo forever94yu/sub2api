@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math"
 	"strings"
@@ -342,6 +343,27 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
 	}
 
+	if !p.IsSubscriptionBill && p.APIKey.Group != nil && p.Account.Platform == PlatformAnthropic {
+		policy := p.APIKey.Group.MonthlyTierPolicy
+		at := time.Now()
+		if usageLog != nil && !usageLog.CreatedAt.IsZero() {
+			at = usageLog.CreatedAt
+		}
+		if policy != nil && policy.Enabled && !at.Before(policy.StartsAt) {
+			cmd.MonthlyTier = &MonthlyTierBilling{GroupID: p.APIKey.Group.ID, Month: MonthlyTierMonth(at), RawCost: p.Cost.TotalCost, Policy: *policy}
+		}
+	}
+	// 月度策略替代固定倍率，即使旧用户倍率为0，也要按结算价更新Key计数。
+	if cmd.MonthlyTier != nil && p.APIKeyService != nil {
+		if p.APIKey.Quota > 0 || p.ForceAPIKeyUsage {
+			cmd.MonthlyTier.TrackKeyQuota = true
+			cmd.APIKeyQuotaCost = p.Cost.TotalCost
+		}
+		if p.APIKey.HasRateLimits() || p.ForceAPIKeyUsage {
+			cmd.MonthlyTier.TrackKeyRateLimit = true
+			cmd.APIKeyRateLimitCost = p.Cost.TotalCost
+		}
+	}
 	cmd.Normalize()
 	settledActual := p.Cost.settledActualCost()
 	if p.IsSubscriptionBill && p.Subscription != nil && p.Cost.TotalCost > 0 {
@@ -382,6 +404,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		}
 	}
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
+		if cmd != nil && cmd.MonthlyTier != nil {
+			return false, fmt.Errorf("monthly tier pricing requires atomic billing repository")
+		}
 		postUsageBilling(ctx, p, deps)
 		return true, nil
 	}
@@ -394,6 +419,19 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		return false, err
 	}
 
+	if result != nil && result.MonthlyTier != nil {
+		settledCost := *p.Cost
+		settledCost.ActualCost = result.MonthlyTier.ChargedCost
+		settledParams := *p
+		settledParams.Cost = &settledCost
+		p = &settledParams
+		if usageLog != nil {
+			usageLog.ActualCost = settledCost.ActualCost
+			if result.MonthlyTier.RawCost > 0 {
+				usageLog.RateMultiplier = settledCost.ActualCost / result.MonthlyTier.RawCost
+			}
+		}
+	}
 	if result == nil || !result.Applied {
 		if deps.deferredService != nil {
 			deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)

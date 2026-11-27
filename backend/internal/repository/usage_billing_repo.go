@@ -47,10 +47,23 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		return nil, err
 	}
 	if !applied {
-		return &service.UsageBillingApplyResult{Applied: false}, nil
+		result := &service.UsageBillingApplyResult{Applied: false}
+		if cmd.MonthlyTier != nil {
+			result.MonthlyTier, err = readMonthlyTierSettlement(ctx, tx, cmd)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return result, nil
 	}
 
 	result := &service.UsageBillingApplyResult{Applied: true}
+	// 在副本上结算，调用者重试时保留原始金额与幂等指纹。
+	settlementCmd := *cmd
+	if err := applyMonthlyTier(ctx, tx, &settlementCmd, result); err != nil {
+		return nil, err
+	}
+	cmd = &settlementCmd
 	if err := r.applyUsageBillingEffects(ctx, tx, cmd, result); err != nil {
 		return nil, err
 	}

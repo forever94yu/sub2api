@@ -301,6 +301,18 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
+	if err := ValidateMonthlyTierPolicy(input.MonthlyTierPolicy, platform, input.SubscriptionType); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_MONTHLY_TIER", err.Error())
+	}
+	if input.MonthlyTierPolicy != nil {
+		p := *input.MonthlyTierPolicy
+		if p.Enabled {
+			p.StartsAt = time.Now().UTC()
+		} else {
+			p.StartsAt = time.Time{}
+		}
+		input.MonthlyTierPolicy = &p
+	}
 	modelPricing, err := normalizeGroupModelPricing(platform, input.ModelPricing)
 	if err != nil {
 		return nil, err
@@ -467,6 +479,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		MonthlyLimitUSD:                 monthlyLimit,
 		LongContextPricingEnabled:       input.LongContextPricingEnabled,
 		ModelPricing:                    modelPricing,
+		MonthlyTierPolicy:               input.MonthlyTierPolicy,
 		AllowImageGeneration:            allowImageGeneration,
 		AllowBatchImageGeneration:       allowBatchImageGeneration,
 		ImageRateIndependent:            input.ImageRateIndependent,
@@ -906,6 +919,21 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	sanitizeGroupReasoningEffortPolicy(group)
 
+	if input.MonthlyTierPolicy != nil {
+		p := *input.MonthlyTierPolicy
+		// 关开开关不重置本月累计；首次启用起点由服务器生成。
+		if group.MonthlyTierPolicy != nil && !group.MonthlyTierPolicy.StartsAt.IsZero() {
+			p.StartsAt = group.MonthlyTierPolicy.StartsAt
+		} else if p.Enabled {
+			p.StartsAt = time.Now().UTC()
+		} else {
+			p.StartsAt = time.Time{}
+		}
+		group.MonthlyTierPolicy = &p
+	}
+	if err := ValidateMonthlyTierPolicy(group.MonthlyTierPolicy, group.Platform, group.SubscriptionType); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_MONTHLY_TIER", err.Error())
+	}
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		return nil, err
 	}

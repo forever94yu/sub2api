@@ -265,9 +265,9 @@
             </div>
           </template>
 
-          <template #cell-rate_multiplier="{ value }">
+          <template #cell-rate_multiplier="{ value, row }">
             <span class="text-sm text-gray-700 dark:text-gray-300"
-              >{{ value }}x</span
+              >{{ row.monthly_tier_policy?.enabled ? `${row.monthly_tier_policy.first_rate}x → ${row.monthly_tier_policy.excess_rate}x（月度阶梯）` : `${value}x` }}</span
             >
           </template>
 
@@ -623,6 +623,7 @@
           />
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
+          <MonthlyTierEditor v-if="createForm.platform === 'anthropic' && createForm.subscription_type !== 'subscription'" v-model="createForm.monthly_tier_policy" />
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -2363,6 +2364,7 @@
             data-tour="group-form-multiplier"
           />
         </div>
+          <MonthlyTierEditor v-if="editForm.platform === 'anthropic' && editForm.subscription_type !== 'subscription'" v-model="editForm.monthly_tier_policy" />
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -4443,6 +4445,7 @@
 </template>
 
 <script setup lang="ts">
+import MonthlyTierEditor from '@/components/admin/group/MonthlyTierEditor.vue';
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
@@ -5084,6 +5087,7 @@ const createForm = reactive({
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
   long_context_pricing_enabled: true,
+  monthly_tier_policy: { enabled: false, threshold: 500, first_rate: 0.7, excess_rate: 1.2 },
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
   allow_image_generation: false,
@@ -5446,6 +5450,7 @@ const editForm = reactive({
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
   long_context_pricing_enabled: true,
+  monthly_tier_policy: { enabled: false, threshold: 500, first_rate: 0.7, excess_rate: 1.2 },
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
   allow_image_generation: false,
@@ -5921,6 +5926,7 @@ const closeCreateModal = () => {
   createForm.video_price_1080p = null;
   createForm.video_model_prices = createVideoModelPricesForm();
   createForm.long_context_pricing_enabled = true;
+  createForm.monthly_tier_policy = { enabled: false, threshold: 500, first_rate: 0.7, excess_rate: 1.2 };
   createForm.model_pricing = [];
   createForm.web_search_price_per_call = null;
   createForm.search_price_per_1k = null;
@@ -6154,6 +6160,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.monthly_limit_usd = group.monthly_limit_usd;
   editForm.long_context_pricing_enabled =
     group.long_context_pricing_enabled ?? true;
+  editForm.monthly_tier_policy = { enabled: false, threshold: 500, first_rate: 0.7, excess_rate: 1.2, ...group.monthly_tier_policy };
   editForm.model_pricing = groupPricingFromAPI(group.model_pricing);
   editForm.allow_image_generation = group.allow_image_generation ?? false;
   editForm.allow_batch_image_generation =
@@ -6260,6 +6267,7 @@ const closeEditModal = () => {
   editForm.video_price_1080p = null;
   editForm.video_model_prices = createVideoModelPricesForm();
   editForm.long_context_pricing_enabled = true;
+  editForm.monthly_tier_policy = { enabled: false, threshold: 500, first_rate: 0.7, excess_rate: 1.2 };
   editForm.model_pricing = [];
   editForm.web_search_price_per_call = null;
   editForm.search_price_per_1k = null;
