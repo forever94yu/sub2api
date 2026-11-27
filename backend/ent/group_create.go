@@ -588,6 +588,12 @@ func (_c *GroupCreate) SetNillableLongContextPricingEnabled(v *bool) *GroupCreat
 	return _c
 }
 
+// SetMonthlyTierPolicy sets the "monthly_tier_policy" field.
+func (_c *GroupCreate) SetMonthlyTierPolicy(v json.RawMessage) *GroupCreate {
+	_c.mutation.SetMonthlyTierPolicy(v)
+	return _c
+}
+
 // SetModelPricing sets the "model_pricing" field.
 func (_c *GroupCreate) SetModelPricing(v json.RawMessage) *GroupCreate {
 	_c.mutation.SetModelPricing(v)
@@ -1533,6 +1539,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.LongContextPricingEnabled(); ok {
 		_spec.SetField(group.FieldLongContextPricingEnabled, field.TypeBool, value)
 		_node.LongContextPricingEnabled = value
+	}
+	if value, ok := _c.mutation.MonthlyTierPolicy(); ok {
+		_spec.SetField(group.FieldMonthlyTierPolicy, field.TypeJSON, value)
+		_node.MonthlyTierPolicy = value
 	}
 	if value, ok := _c.mutation.ModelPricing(); ok {
 		_spec.SetField(group.FieldModelPricing, field.TypeJSON, value)
@@ -2483,6 +2493,24 @@ func (u *GroupUpsert) SetLongContextPricingEnabled(v bool) *GroupUpsert {
 // UpdateLongContextPricingEnabled sets the "long_context_pricing_enabled" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateLongContextPricingEnabled() *GroupUpsert {
 	u.SetExcluded(group.FieldLongContextPricingEnabled)
+	return u
+}
+
+// SetMonthlyTierPolicy sets the "monthly_tier_policy" field.
+func (u *GroupUpsert) SetMonthlyTierPolicy(v json.RawMessage) *GroupUpsert {
+	u.Set(group.FieldMonthlyTierPolicy, v)
+	return u
+}
+
+// UpdateMonthlyTierPolicy sets the "monthly_tier_policy" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateMonthlyTierPolicy() *GroupUpsert {
+	u.SetExcluded(group.FieldMonthlyTierPolicy)
+	return u
+}
+
+// ClearMonthlyTierPolicy clears the value of the "monthly_tier_policy" field.
+func (u *GroupUpsert) ClearMonthlyTierPolicy() *GroupUpsert {
+	u.SetNull(group.FieldMonthlyTierPolicy)
 	return u
 }
 
@@ -3681,6 +3709,27 @@ func (u *GroupUpsertOne) SetLongContextPricingEnabled(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateLongContextPricingEnabled() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateLongContextPricingEnabled()
+	})
+}
+
+// SetMonthlyTierPolicy sets the "monthly_tier_policy" field.
+func (u *GroupUpsertOne) SetMonthlyTierPolicy(v json.RawMessage) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetMonthlyTierPolicy(v)
+	})
+}
+
+// UpdateMonthlyTierPolicy sets the "monthly_tier_policy" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateMonthlyTierPolicy() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateMonthlyTierPolicy()
+	})
+}
+
+// ClearMonthlyTierPolicy clears the value of the "monthly_tier_policy" field.
+func (u *GroupUpsertOne) ClearMonthlyTierPolicy() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearMonthlyTierPolicy()
 	})
 }
 
@@ -5099,6 +5148,27 @@ func (u *GroupUpsertBulk) SetLongContextPricingEnabled(v bool) *GroupUpsertBulk 
 func (u *GroupUpsertBulk) UpdateLongContextPricingEnabled() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateLongContextPricingEnabled()
+	})
+}
+
+// SetMonthlyTierPolicy sets the "monthly_tier_policy" field.
+func (u *GroupUpsertBulk) SetMonthlyTierPolicy(v json.RawMessage) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetMonthlyTierPolicy(v)
+	})
+}
+
+// UpdateMonthlyTierPolicy sets the "monthly_tier_policy" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateMonthlyTierPolicy() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateMonthlyTierPolicy()
+	})
+}
+
+// ClearMonthlyTierPolicy clears the value of the "monthly_tier_policy" field.
+func (u *GroupUpsertBulk) ClearMonthlyTierPolicy() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearMonthlyTierPolicy()
 	})
 }
 

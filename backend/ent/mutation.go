@@ -22144,6 +22144,8 @@ type GroupMutation struct {
 	audio_stt_price_per_hour                *float64
 	addaudio_stt_price_per_hour             *float64
 	long_context_pricing_enabled            *bool
+	monthly_tier_policy                     *json.RawMessage
+	appendmonthly_tier_policy               json.RawMessage
 	model_pricing                           *json.RawMessage
 	appendmodel_pricing                     json.RawMessage
 	claude_code_only                        *bool
@@ -24475,6 +24477,71 @@ func (m *GroupMutation) ResetLongContextPricingEnabled() {
 	m.long_context_pricing_enabled = nil
 }
 
+// SetMonthlyTierPolicy sets the "monthly_tier_policy" field.
+func (m *GroupMutation) SetMonthlyTierPolicy(jm json.RawMessage) {
+	m.monthly_tier_policy = &jm
+	m.appendmonthly_tier_policy = nil
+}
+
+// MonthlyTierPolicy returns the value of the "monthly_tier_policy" field in the mutation.
+func (m *GroupMutation) MonthlyTierPolicy() (r json.RawMessage, exists bool) {
+	v := m.monthly_tier_policy
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMonthlyTierPolicy returns the old "monthly_tier_policy" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldMonthlyTierPolicy(ctx context.Context) (v json.RawMessage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMonthlyTierPolicy is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMonthlyTierPolicy requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMonthlyTierPolicy: %w", err)
+	}
+	return oldValue.MonthlyTierPolicy, nil
+}
+
+// AppendMonthlyTierPolicy adds jm to the "monthly_tier_policy" field.
+func (m *GroupMutation) AppendMonthlyTierPolicy(jm json.RawMessage) {
+	m.appendmonthly_tier_policy = append(m.appendmonthly_tier_policy, jm...)
+}
+
+// AppendedMonthlyTierPolicy returns the list of values that were appended to the "monthly_tier_policy" field in this mutation.
+func (m *GroupMutation) AppendedMonthlyTierPolicy() (json.RawMessage, bool) {
+	if len(m.appendmonthly_tier_policy) == 0 {
+		return nil, false
+	}
+	return m.appendmonthly_tier_policy, true
+}
+
+// ClearMonthlyTierPolicy clears the value of the "monthly_tier_policy" field.
+func (m *GroupMutation) ClearMonthlyTierPolicy() {
+	m.monthly_tier_policy = nil
+	m.appendmonthly_tier_policy = nil
+	m.clearedFields[group.FieldMonthlyTierPolicy] = struct{}{}
+}
+
+// MonthlyTierPolicyCleared returns if the "monthly_tier_policy" field was cleared in this mutation.
+func (m *GroupMutation) MonthlyTierPolicyCleared() bool {
+	_, ok := m.clearedFields[group.FieldMonthlyTierPolicy]
+	return ok
+}
+
+// ResetMonthlyTierPolicy resets all changes to the "monthly_tier_policy" field.
+func (m *GroupMutation) ResetMonthlyTierPolicy() {
+	m.monthly_tier_policy = nil
+	m.appendmonthly_tier_policy = nil
+	delete(m.clearedFields, group.FieldMonthlyTierPolicy)
+}
+
 // SetModelPricing sets the "model_pricing" field.
 func (m *GroupMutation) SetModelPricing(jm json.RawMessage) {
 	m.model_pricing = &jm
@@ -25845,7 +25912,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 63)
+	fields := make([]string, 0, 64)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25968,6 +26035,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.long_context_pricing_enabled != nil {
 		fields = append(fields, group.FieldLongContextPricingEnabled)
+	}
+	if m.monthly_tier_policy != nil {
+		fields = append(fields, group.FieldMonthlyTierPolicy)
 	}
 	if m.model_pricing != nil {
 		fields = append(fields, group.FieldModelPricing)
@@ -26125,6 +26195,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.AudioSttPricePerHour()
 	case group.FieldLongContextPricingEnabled:
 		return m.LongContextPricingEnabled()
+	case group.FieldMonthlyTierPolicy:
+		return m.MonthlyTierPolicy()
 	case group.FieldModelPricing:
 		return m.ModelPricing()
 	case group.FieldClaudeCodeOnly:
@@ -26260,6 +26332,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldAudioSttPricePerHour(ctx)
 	case group.FieldLongContextPricingEnabled:
 		return m.OldLongContextPricingEnabled(ctx)
+	case group.FieldMonthlyTierPolicy:
+		return m.OldMonthlyTierPolicy(ctx)
 	case group.FieldModelPricing:
 		return m.OldModelPricing(ctx)
 	case group.FieldClaudeCodeOnly:
@@ -26599,6 +26673,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetLongContextPricingEnabled(v)
+		return nil
+	case group.FieldMonthlyTierPolicy:
+		v, ok := value.(json.RawMessage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMonthlyTierPolicy(v)
 		return nil
 	case group.FieldModelPricing:
 		v, ok := value.(json.RawMessage)
@@ -27180,6 +27261,9 @@ func (m *GroupMutation) ClearedFields() []string {
 	if m.FieldCleared(group.FieldAudioSttPricePerHour) {
 		fields = append(fields, group.FieldAudioSttPricePerHour)
 	}
+	if m.FieldCleared(group.FieldMonthlyTierPolicy) {
+		fields = append(fields, group.FieldMonthlyTierPolicy)
+	}
 	if m.FieldCleared(group.FieldModelPricing) {
 		fields = append(fields, group.FieldModelPricing)
 	}
@@ -27262,6 +27346,9 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldAudioSttPricePerHour:
 		m.ClearAudioSttPricePerHour()
+		return nil
+	case group.FieldMonthlyTierPolicy:
+		m.ClearMonthlyTierPolicy()
 		return nil
 	case group.FieldModelPricing:
 		m.ClearModelPricing()
@@ -27405,6 +27492,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldLongContextPricingEnabled:
 		m.ResetLongContextPricingEnabled()
+		return nil
+	case group.FieldMonthlyTierPolicy:
+		m.ResetMonthlyTierPolicy()
 		return nil
 	case group.FieldModelPricing:
 		m.ResetModelPricing()

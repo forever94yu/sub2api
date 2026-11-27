@@ -51,6 +51,12 @@ func (h *GatewayHandler) KeyBillingInfo(c *gin.Context) {
 		return
 	}
 
+	if policy := apiKey.Group.MonthlyTierPolicy; policy != nil && policy.Enabled {
+		// 不向下游同步一个虚假的固定倍率；阶梯费用以实际结算为准。
+		h.errorResponse(c, http.StatusConflict, "dynamic_billing_rate", "Monthly tier billing has no fixed rate multiplier")
+		return
+	}
+
 	resolvedRate, ok := h.resolveKeyBillingRate(c, apiKey)
 	if !ok {
 		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Billing information is unavailable")

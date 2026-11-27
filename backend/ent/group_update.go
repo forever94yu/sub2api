@@ -829,6 +829,24 @@ func (_u *GroupUpdate) SetNillableLongContextPricingEnabled(v *bool) *GroupUpdat
 	return _u
 }
 
+// SetMonthlyTierPolicy sets the "monthly_tier_policy" field.
+func (_u *GroupUpdate) SetMonthlyTierPolicy(v json.RawMessage) *GroupUpdate {
+	_u.mutation.SetMonthlyTierPolicy(v)
+	return _u
+}
+
+// AppendMonthlyTierPolicy appends value to the "monthly_tier_policy" field.
+func (_u *GroupUpdate) AppendMonthlyTierPolicy(v json.RawMessage) *GroupUpdate {
+	_u.mutation.AppendMonthlyTierPolicy(v)
+	return _u
+}
+
+// ClearMonthlyTierPolicy clears the value of the "monthly_tier_policy" field.
+func (_u *GroupUpdate) ClearMonthlyTierPolicy() *GroupUpdate {
+	_u.mutation.ClearMonthlyTierPolicy()
+	return _u
+}
+
 // SetModelPricing sets the "model_pricing" field.
 func (_u *GroupUpdate) SetModelPricing(v json.RawMessage) *GroupUpdate {
 	_u.mutation.SetModelPricing(v)
@@ -1768,6 +1786,17 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.LongContextPricingEnabled(); ok {
 		_spec.SetField(group.FieldLongContextPricingEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.MonthlyTierPolicy(); ok {
+		_spec.SetField(group.FieldMonthlyTierPolicy, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedMonthlyTierPolicy(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, group.FieldMonthlyTierPolicy, value)
+		})
+	}
+	if _u.mutation.MonthlyTierPolicyCleared() {
+		_spec.ClearField(group.FieldMonthlyTierPolicy, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.ModelPricing(); ok {
 		_spec.SetField(group.FieldModelPricing, field.TypeJSON, value)
@@ -2986,6 +3015,24 @@ func (_u *GroupUpdateOne) SetNillableLongContextPricingEnabled(v *bool) *GroupUp
 	return _u
 }
 
+// SetMonthlyTierPolicy sets the "monthly_tier_policy" field.
+func (_u *GroupUpdateOne) SetMonthlyTierPolicy(v json.RawMessage) *GroupUpdateOne {
+	_u.mutation.SetMonthlyTierPolicy(v)
+	return _u
+}
+
+// AppendMonthlyTierPolicy appends value to the "monthly_tier_policy" field.
+func (_u *GroupUpdateOne) AppendMonthlyTierPolicy(v json.RawMessage) *GroupUpdateOne {
+	_u.mutation.AppendMonthlyTierPolicy(v)
+	return _u
+}
+
+// ClearMonthlyTierPolicy clears the value of the "monthly_tier_policy" field.
+func (_u *GroupUpdateOne) ClearMonthlyTierPolicy() *GroupUpdateOne {
+	_u.mutation.ClearMonthlyTierPolicy()
+	return _u
+}
+
 // SetModelPricing sets the "model_pricing" field.
 func (_u *GroupUpdateOne) SetModelPricing(v json.RawMessage) *GroupUpdateOne {
 	_u.mutation.SetModelPricing(v)
@@ -3955,6 +4002,17 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.LongContextPricingEnabled(); ok {
 		_spec.SetField(group.FieldLongContextPricingEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.MonthlyTierPolicy(); ok {
+		_spec.SetField(group.FieldMonthlyTierPolicy, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedMonthlyTierPolicy(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, group.FieldMonthlyTierPolicy, value)
+		})
+	}
+	if _u.mutation.MonthlyTierPolicyCleared() {
+		_spec.ClearField(group.FieldMonthlyTierPolicy, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.ModelPricing(); ok {
 		_spec.SetField(group.FieldModelPricing, field.TypeJSON, value)

@@ -2115,6 +2115,16 @@ func LongContextPricingEnabledNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldLongContextPricingEnabled, v))
 }
 
+// MonthlyTierPolicyIsNil applies the IsNil predicate on the "monthly_tier_policy" field.
+func MonthlyTierPolicyIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldMonthlyTierPolicy))
+}
+
+// MonthlyTierPolicyNotNil applies the NotNil predicate on the "monthly_tier_policy" field.
+func MonthlyTierPolicyNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldMonthlyTierPolicy))
+}
+
 // ModelPricingIsNil applies the IsNil predicate on the "model_pricing" field.
 func ModelPricingIsNil() predicate.Group {
 	return predicate.Group(sql.FieldIsNull(FieldModelPricing))

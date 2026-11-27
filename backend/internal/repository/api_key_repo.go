@@ -201,6 +201,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldAudioSttPricePerHour,
 				group.FieldLongContextPricingEnabled,
 				group.FieldModelPricing,
+				group.FieldMonthlyTierPolicy,
 				group.FieldClaudeCodeOnly,
 				group.FieldFallbackGroupID,
 				group.FieldFallbackGroupIDOnInvalidRequest,
@@ -952,6 +953,13 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 	if g == nil {
 		return nil
 	}
+	var monthlyTier *service.MonthlyTierPolicy
+	if len(g.MonthlyTierPolicy) > 0 {
+		if err := json.Unmarshal(g.MonthlyTierPolicy, &monthlyTier); err != nil {
+			// 损坏的计费规则不能静默回退为普通价格。
+			monthlyTier = &service.MonthlyTierPolicy{Enabled: true}
+		}
+	}
 	var modelPricing []service.ChannelModelPricing
 	if len(g.ModelPricing) > 0 {
 		if err := json.Unmarshal(g.ModelPricing, &modelPricing); err != nil {
@@ -997,6 +1005,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		AudioSTTPricePerHour:            g.AudioSttPricePerHour,
 		LongContextPricingEnabled:       g.LongContextPricingEnabled,
 		ModelPricing:                    modelPricing,
+		MonthlyTierPolicy:               monthlyTier,
 		DefaultValidityDays:             g.DefaultValidityDays,
 		ClaudeCodeOnly:                  g.ClaudeCodeOnly,
 		FallbackGroupID:                 g.FallbackGroupID,
